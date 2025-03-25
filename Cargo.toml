@@ -1,0 +1,11 @@
+[workspace]
+members = ["rpc-gateway-config", "rpc-gateway-core"]
+
+[package]
+name = "rpc-gateway"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+rpc-gateway-core = { path = "./rpc-gateway-core" }
+rpc-gateway-config = { path = "./rpc-gateway-config" }

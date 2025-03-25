@@ -1,0 +1,36 @@
+[server]
+host = "127.0.0.1"
+port = 9090
+
+[logging]
+level = "info"
+format = "text"
+color = true
+
+[cache]
+enabled = true
+
+[method_filter]
+mode = "whitelist"
+methods = [
+  "eth_blockNumber",
+  "eth_call",
+  "eth_chainId",
+  "eth_estimateGas",
+  "eth_gasPrice",
+  "eth_getBalance",
+  "eth_getCode",
+  "eth_getTransactionCount",
+  "eth_getTransactionReceipt",
+  "net_version",
+]
+
+[[chains.1.upstreams]]
+url = "url1"
+timeout = "10s"
+weight = 1
+
+[[chains.1.upstreams]]
+url = "url2"
+timeout = "10s"
+weight = 2
