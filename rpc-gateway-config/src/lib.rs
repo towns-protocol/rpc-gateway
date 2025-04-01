@@ -15,6 +15,8 @@ pub struct Config {
     #[serde(default)]
     pub logging: LoggingConfig,
     #[serde(default)]
+    pub cache: CacheConfig,
+    #[serde(default)]
     #[serde(with = "chain_map_serde")]
     pub chains: HashMap<u64, ChainConfig>,
 }
@@ -161,6 +163,12 @@ pub struct FileLogConfig {
     pub include_line_number: bool,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CacheConfig {
+    #[serde(default = "default_cache_enabled")]
+    pub enabled: bool,
+}
+
 // Default functions for new fields
 fn default_weight_decay() -> f64 {
     0.5
@@ -294,6 +302,10 @@ fn default_include_line_number() -> bool {
     true
 }
 
+fn default_cache_enabled() -> bool {
+    false
+}
+
 impl Config {
     pub fn from_toml_str(s: &str) -> Result<Self, toml::de::Error> {
         let config: Config = toml::from_str(s)?;
@@ -352,6 +364,7 @@ impl Default for Config {
             load_balancing: default_load_balancing_config(),
             error_handling: ErrorHandlingConfig::default(),
             logging: LoggingConfig::default(),
+            cache: CacheConfig::default(),
             chains: HashMap::new(),
         }
     }
@@ -413,6 +426,14 @@ impl Default for ChainConfig {
             chain: Chain::from_id(1),
             upstreams: Vec::new(),
             block_time_ms: None,
+        }
+    }
+}
+
+impl Default for CacheConfig {
+    fn default() -> Self {
+        Self {
+            enabled: default_cache_enabled(),
         }
     }
 }
@@ -1084,5 +1105,56 @@ mod tests {
         chain_config.chain = Chain::from_id(999999); // Unknown chain
         chain_config.block_time_ms = None;
         assert_eq!(chain_config.get_block_time(), None);
+    }
+
+    #[test]
+    fn test_cache_config_default() {
+        let config = Config::default();
+        assert!(!config.cache.enabled);
+    }
+
+    #[test]
+    fn test_cache_config_from_toml() {
+        let config_str = r#"
+            [cache]
+            enabled = true
+        "#;
+
+        let config = Config::from_toml_str(config_str).unwrap();
+        assert!(config.cache.enabled);
+    }
+
+    #[test]
+    fn test_cache_config_omitted() {
+        let config_str = r#"
+            [server]
+            host = "localhost"
+        "#;
+
+        let config = Config::from_toml_str(config_str).unwrap();
+        assert!(!config.cache.enabled);
+    }
+
+    #[test]
+    fn test_cache_config_with_other_settings() {
+        let config_str = r#"
+            [server]
+            host = "localhost"
+            port = 8080
+
+            [cache]
+            enabled = true
+
+            [chains.1]
+            upstreams = [
+                { url = "http://example.com" }
+            ]
+        "#;
+
+        let config = Config::from_toml_str(config_str).unwrap();
+        assert!(config.cache.enabled);
+        assert_eq!(config.server.host, "localhost");
+        assert_eq!(config.server.port, 8080);
+        assert_eq!(config.chains.get(&1).unwrap().upstreams.len(), 1);
     }
 }

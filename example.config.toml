@@ -12,6 +12,9 @@ max_retries = 3
 retry_delay = "1s"
 jitter = true
 
+[cache]
+enabled = true
+
 [logging.console]
 enabled = true
 level = "debug"
