@@ -28,3 +28,6 @@ reqwest = { version = "0.12.15", features = ["json"] }
 serde = { version = "1.0.219", features = ["derive"] }
 alloy-json-rpc = "0.13.0"
 rand = "0.9.0"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+tracing-appender = "0.2"
+tracing-actix-web = "0.7"
