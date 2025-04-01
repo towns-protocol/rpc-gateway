@@ -7,7 +7,6 @@ use rpc_gateway_config::Config;
 use serde_json::Value;
 use tracing::{debug, error, info};
 use tracing_actix_web::{StreamSpan, TracingLogger};
-use tracing_subscriber::{fmt, EnvFilter};
 
 mod cache;
 mod gateway;
