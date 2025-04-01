@@ -1,7 +1,6 @@
 use alloy_chains::Chain;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::env;
 use std::time::Duration;
 use url::Url;
 
@@ -284,42 +283,8 @@ fn default_include_line_number() -> bool {
 }
 
 impl Config {
-    fn resolve_env_vars(value: &str) -> String {
-        if value.starts_with('$') {
-            let var_name = value.trim_start_matches('$');
-            env::var(var_name).unwrap_or_else(|_| format!("env://{}", value))
-        } else {
-            value.to_string()
-        }
-    }
-
     pub fn from_toml_str(s: &str) -> Result<Self, toml::de::Error> {
-        let mut config: Config = toml::from_str(s)?;
-
-        // Resolve environment variables in URLs
-        for (_chain_id, chain) in &mut config.chains {
-            for upstream in &mut chain.upstreams {
-                let url_str = upstream.url.as_str();
-                if url_str.starts_with("env://") {
-                    let env_var = url_str.trim_start_matches("env://");
-                    let resolved_url = Self::resolve_env_vars(env_var);
-                    if resolved_url.starts_with("env://") {
-                        upstream.url = Url::parse(&resolved_url).unwrap();
-                    } else {
-                        let mut url = Url::parse(&resolved_url).map_err(|e| {
-                            toml::de::Error::from(serde::de::Error::custom(format!(
-                                "Invalid URL after env resolution: {}",
-                                e
-                            )))
-                        })?;
-                        if !url.path().ends_with('/') {
-                            url.set_path(&format!("{}/", url.path()));
-                        }
-                        upstream.url = url;
-                    }
-                }
-            }
-        }
+        let config: Config = toml::from_str(s)?;
 
         // Validate error handling configuration
         match &config.error_handling {
@@ -447,15 +412,11 @@ mod url_serde {
         D: Deserializer<'de>,
     {
         let s = String::deserialize(deserializer)?;
-        if s.starts_with('$') {
-            Ok(Url::parse(&format!("env://{}", s)).unwrap())
-        } else {
-            let mut url = Url::from_str(&s).map_err(serde::de::Error::custom)?;
-            if !url.path().ends_with('/') {
-                url.set_path(&format!("{}/", url.path()));
-            }
-            Ok(url)
+        let mut url = Url::from_str(&s).map_err(serde::de::Error::custom)?;
+        if !url.path().ends_with('/') {
+            url.set_path(&format!("{}/", url.path()));
         }
+        Ok(url)
     }
 }
 
@@ -847,198 +808,18 @@ mod tests {
     }
 
     #[test]
-    fn test_env_var_resolution() {
+    fn test_mixed_urls() {
         let config_str = r#"
             [chains.1]
             upstreams = [
-                { url = "$ALCHEMY_URL", weight = 1 }
-            ]
-        "#;
-
-        // Set up test environment
-        unsafe {
-            std::env::set_var(
-                "ALCHEMY_URL",
-                "https://eth-mainnet.g.alchemy.com/v2/test-key",
-            );
-        }
-
-        let config = Config::from_toml_str(config_str).unwrap();
-        let url = &config.chains.get(&1).unwrap().upstreams[0].url;
-        assert_eq!(
-            url.as_str(),
-            "https://eth-mainnet.g.alchemy.com/v2/test-key/"
-        );
-
-        // Clean up
-        unsafe {
-            std::env::remove_var("ALCHEMY_URL");
-        }
-    }
-
-    #[test]
-    fn test_missing_env_var() {
-        let config_str = r#"
-            [chains.1]
-            upstreams = [
-                { url = "$MISSING_URL", weight = 1 }
-            ]
-        "#;
-
-        let config = Config::from_toml_str(config_str).unwrap();
-        let url = &config.chains.get(&1).unwrap().upstreams[0].url;
-        assert_eq!(url.as_str(), "env://$MISSING_URL");
-    }
-
-    #[test]
-    fn test_invalid_url_after_env_resolution() {
-        let config_str = r#"
-            [chains.1]
-            upstreams = [
-                { url = "$INVALID_URL", weight = 1 }
-            ]
-        "#;
-
-        // Set up test environment
-        unsafe {
-            std::env::set_var("INVALID_URL", "not a valid url");
-        }
-
-        let result = Config::from_toml_str(config_str);
-        assert!(result.is_err());
-
-        // Clean up
-        unsafe {
-            std::env::remove_var("INVALID_URL");
-        }
-    }
-
-    #[test]
-    fn test_mixed_env_and_static_urls() {
-        let config_str = r#"
-            [chains.1]
-            upstreams = [
-                { url = "$ALCHEMY_URL", weight = 1 },
-                { url = "https://static-url.com", weight = 1 }
-            ]
-        "#;
-
-        // Set up test environment
-        unsafe {
-            std::env::set_var(
-                "ALCHEMY_URL",
-                "https://eth-mainnet.g.alchemy.com/v2/test-key",
-            );
-        }
-
-        let config = Config::from_toml_str(config_str).unwrap();
-        let chain = config.chains.get(&1).unwrap();
-        assert_eq!(
-            chain.upstreams[0].url.as_str(),
-            "https://eth-mainnet.g.alchemy.com/v2/test-key/"
-        );
-        assert_eq!(chain.upstreams[1].url.as_str(), "https://static-url.com/");
-
-        // Clean up
-        unsafe {
-            std::env::remove_var("ALCHEMY_URL");
-        }
-    }
-
-    #[test]
-    fn test_chain_field_derivation() {
-        let config_str = r#"
-            [chains.1]
-            upstreams = [
-                { url = "http://example.com" }
-            ]
-
-            [chains.5]
-            upstreams = [
-                { url = "http://example.com" }
-            ]
-
-            [chains.137]
-            upstreams = [
-                { url = "http://example.com" }
-            ]
-        "#;
-
-        let config = Config::from_toml_str(config_str).unwrap();
-
-        // Test Ethereum Mainnet (chain ID 1)
-        let chain1 = config.chains.get(&1).unwrap();
-        assert_eq!(chain1.chain, Chain::from_id(1));
-
-        // Test Goerli (chain ID 5)
-        let chain5 = config.chains.get(&5).unwrap();
-        assert_eq!(chain5.chain, Chain::from_id(5));
-
-        // Test Polygon Mainnet (chain ID 137)
-        let chain137 = config.chains.get(&137).unwrap();
-        assert_eq!(chain137.chain, Chain::from_id(137));
-    }
-
-    #[test]
-    fn test_chain_field_not_in_config() {
-        let config_str = r#"
-            [chains.1]
-            chain = "base"  # This should be ignored
-            upstreams = [
-                { url = "http://example.com" }
+                { url = "https://api1.example.com", weight = 1 },
+                { url = "https://api2.example.com", weight = 1 }
             ]
         "#;
 
         let config = Config::from_toml_str(config_str).unwrap();
         let chain = config.chains.get(&1).unwrap();
-
-        // The chain field should be derived from the chain ID (1) regardless of what's in the config
-        assert_eq!(chain.chain, Chain::from_id(1));
-    }
-
-    #[test]
-    fn test_multiple_chains_with_chain_field() {
-        let config_str = r#"
-            [chains.1]
-            upstreams = [
-                { url = "http://eth.example.com" }
-            ]
-
-            [chains.56]
-            upstreams = [
-                { url = "http://bsc.example.com" }
-            ]
-
-            [chains.137]
-            upstreams = [
-                { url = "http://polygon.example.com" }
-            ]
-        "#;
-
-        let config = Config::from_toml_str(config_str).unwrap();
-
-        // Verify each chain has the correct Chain value based on its ID
-        let eth_chain = config.chains.get(&1).unwrap();
-        assert_eq!(eth_chain.chain, Chain::from_id(1));
-
-        let bsc_chain = config.chains.get(&56).unwrap();
-        assert_eq!(bsc_chain.chain, Chain::from_id(56));
-
-        let polygon_chain = config.chains.get(&137).unwrap();
-        assert_eq!(polygon_chain.chain, Chain::from_id(137));
-
-        // Also verify the URLs are correct
-        assert_eq!(
-            eth_chain.upstreams[0].url.as_str(),
-            "http://eth.example.com/"
-        );
-        assert_eq!(
-            bsc_chain.upstreams[0].url.as_str(),
-            "http://bsc.example.com/"
-        );
-        assert_eq!(
-            polygon_chain.upstreams[0].url.as_str(),
-            "http://polygon.example.com/"
-        );
+        assert_eq!(chain.upstreams[0].url.as_str(), "https://api1.example.com/");
+        assert_eq!(chain.upstreams[1].url.as_str(), "https://api2.example.com/");
     }
 }
