@@ -14,15 +14,15 @@ async fn index(
 ) -> Result<String> {
     let chain_id = path.into_inner();
     let chain = Chain::from(chain_id);
-    // println!("Chain: {:?}", chain);
-    // println!("Request: {:?}", request);
+    let c = config.chains.get(&chain_id).unwrap();
+    println!("Chain config: {:#?}", c);
+    // println!("Chain: {:#?}", chain);
+    // println!("Request: {:#?}", request);
     // if request.meta.method.eq("eth_blockNumber") {
     //     print!("Block number request");
     // } else {
     //     print!("Other request");
     // }
-
-    println!("Config: {:?}", config);
 
     Ok(format!("Chain ID: {}", chain_id))
 }
