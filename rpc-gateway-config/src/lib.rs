@@ -14,6 +14,8 @@ pub struct Config {
     #[serde(default)]
     pub error_handling: ErrorHandlingConfig,
     #[serde(default)]
+    pub logging: LoggingConfig,
+    #[serde(default)]
     #[serde(with = "chain_map_serde")]
     pub chains: HashMap<u64, ChainConfig>,
 }
@@ -96,6 +98,58 @@ pub struct UpstreamConfig {
     pub weight: u32,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LoggingConfig {
+    #[serde(default)]
+    pub console: ConsoleLogConfig,
+    #[serde(default)]
+    pub file: FileLogConfig,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ConsoleLogConfig {
+    #[serde(default = "default_console_enabled")]
+    pub enabled: bool,
+    #[serde(default = "default_console_level")]
+    pub level: String,
+    #[serde(default = "default_console_format")]
+    pub format: String,
+    #[serde(default = "default_include_target")]
+    pub include_target: bool,
+    #[serde(default = "default_include_thread_ids")]
+    pub include_thread_ids: bool,
+    #[serde(default = "default_include_thread_names")]
+    pub include_thread_names: bool,
+    #[serde(default = "default_include_file")]
+    pub include_file: bool,
+    #[serde(default = "default_include_line_number")]
+    pub include_line_number: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FileLogConfig {
+    #[serde(default = "default_file_enabled")]
+    pub enabled: bool,
+    #[serde(default = "default_file_level")]
+    pub level: String,
+    #[serde(default = "default_file_format")]
+    pub format: String,
+    #[serde(default = "default_file_path")]
+    pub path: String,
+    #[serde(default = "default_file_rotation")]
+    pub rotation: String,
+    #[serde(default = "default_include_target")]
+    pub include_target: bool,
+    #[serde(default = "default_include_thread_ids")]
+    pub include_thread_ids: bool,
+    #[serde(default = "default_include_thread_names")]
+    pub include_thread_names: bool,
+    #[serde(default = "default_include_file")]
+    pub include_file: bool,
+    #[serde(default = "default_include_line_number")]
+    pub include_line_number: bool,
+}
+
 // Default functions for new fields
 fn default_weight_decay() -> f64 {
     0.5
@@ -166,6 +220,67 @@ fn default_timeout() -> Duration {
 
 fn default_weight() -> u32 {
     1
+}
+
+// Default functions for logging configuration
+fn default_console_enabled() -> bool {
+    true
+}
+
+fn default_console_level() -> String {
+    if cfg!(debug_assertions) {
+        "debug".to_string()
+    } else {
+        "info".to_string()
+    }
+}
+
+fn default_console_format() -> String {
+    if cfg!(debug_assertions) {
+        "text".to_string()
+    } else {
+        "json".to_string()
+    }
+}
+
+fn default_file_enabled() -> bool {
+    !cfg!(debug_assertions) // Enable file logging by default in release mode
+}
+
+fn default_file_level() -> String {
+    "info".to_string()
+}
+
+fn default_file_format() -> String {
+    "json".to_string()
+}
+
+fn default_file_path() -> String {
+    "logs/rpc-gateway.log".to_string()
+}
+
+fn default_file_rotation() -> String {
+    "daily".to_string()
+}
+
+fn default_include_target() -> bool {
+    true
+}
+
+fn default_include_thread_ids() -> bool {
+    true
+}
+
+fn default_include_thread_names() -> bool {
+    true
+}
+
+fn default_include_file() -> bool {
+    true
+}
+
+fn default_include_line_number() -> bool {
+    true
 }
 
 impl Config {
@@ -259,6 +374,7 @@ impl Default for Config {
             server: ServerConfig::default(),
             load_balancing: default_load_balancing_config(),
             error_handling: ErrorHandlingConfig::default(),
+            logging: LoggingConfig::default(),
             chains: HashMap::new(),
         }
     }
@@ -269,6 +385,47 @@ impl Default for ServerConfig {
         Self {
             host: default_host(),
             port: default_port(),
+        }
+    }
+}
+
+impl Default for LoggingConfig {
+    fn default() -> Self {
+        Self {
+            console: ConsoleLogConfig::default(),
+            file: FileLogConfig::default(),
+        }
+    }
+}
+
+impl Default for ConsoleLogConfig {
+    fn default() -> Self {
+        Self {
+            enabled: default_console_enabled(),
+            level: default_console_level(),
+            format: default_console_format(),
+            include_target: default_include_target(),
+            include_thread_ids: default_include_thread_ids(),
+            include_thread_names: default_include_thread_names(),
+            include_file: default_include_file(),
+            include_line_number: default_include_line_number(),
+        }
+    }
+}
+
+impl Default for FileLogConfig {
+    fn default() -> Self {
+        Self {
+            enabled: default_file_enabled(),
+            level: default_file_level(),
+            format: default_file_format(),
+            path: default_file_path(),
+            rotation: default_file_rotation(),
+            include_target: default_include_target(),
+            include_thread_ids: default_include_thread_ids(),
+            include_thread_names: default_include_thread_names(),
+            include_file: default_include_file(),
+            include_line_number: default_include_line_number(),
         }
     }
 }

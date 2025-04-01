@@ -4,30 +4,24 @@ members = ["rpc-gateway-config", "rpc-gateway-core"]
 [package]
 name = "rpc-gateway"
 version = "0.1.0"
-edition = "2024"
+edition = "2021"
 
 [dependencies]
 rpc-gateway-core = { path = "./rpc-gateway-core" }
 rpc-gateway-config = { path = "./rpc-gateway-config" }
-
-# alloy = { version = "0.12.6", features = [
-#   "full",
-#   "rpc",
-#   "json-rpc",
-#   "rpc-types",
-#   "hyper",
-# ] }
-# eyre = "0.6.12"
-tokio = { version = "1.44.1", features = ["full"] }
+tokio = { version = "1.0", features = ["full"] }
 serde_json = "1.0"
-tracing = "0.1.41"
+tracing = "0.1"
 
-actix-web = "4.10.2"
+actix-web = "4.4"
 moka = { version = "0.12.10", features = ["future", "sync"] }
 reqwest = { version = "0.12.15", features = ["json"] }
-serde = { version = "1.0.219", features = ["derive"] }
+serde = { version = "1.0", features = ["derive"] }
 alloy-json-rpc = "0.13.0"
+alloy-chains = "0.1"
 rand = "0.9.0"
-tracing-subscriber = { version = "0.3", features = ["env-filter"] }
-tracing-appender = "0.2"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+tracing-appender = { version = "0.2" }
 tracing-actix-web = "0.7"
+toml = "0.8"
+url = "2.5"

@@ -12,6 +12,28 @@ max_retries = 3
 retry_delay = "1s"
 jitter = true
 
+[logging.console]
+enabled = true
+level = "debug"
+format = "text"
+include_target = true
+include_thread_ids = true
+include_thread_names = true
+include_file = true
+include_line_number = true
+
+[logging.file]
+enabled = true
+level = "info"
+format = "json"
+path = "logs/rpc-gateway.log"
+rotation = "daily"
+include_target = true
+include_thread_ids = true
+include_thread_names = true
+include_file = true
+include_line_number = true
+
 [chains.1]
 upstreams = [
   { url = "$ALCHEMY_URL", timeout = "10s", weight = 1 },
