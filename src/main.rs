@@ -1,36 +1,8 @@
-use std::sync::Mutex;
-
 use actix_web::dev::{ServiceFactory, ServiceRequest, ServiceResponse};
-use actix_web::{App, Error, HttpResponse, HttpServer, Responder, Result, get, post, web};
-use alloy_chains::{Chain, ChainKind, NamedChain};
+use actix_web::{App, Error, HttpServer, Result, post, web};
+use alloy_chains::Chain;
 use alloy_json_rpc;
-use serde::Deserialize;
 use serde_json::Value;
-
-struct AppState {
-    app_name: String,
-}
-
-struct AppStateWithCounter {
-    counter: Mutex<i32>,
-}
-
-#[get("/")]
-async fn hello(data: web::Data<AppStateWithCounter>) -> impl Responder {
-    let mut counter = data.counter.lock().unwrap();
-    *counter += 1;
-
-    HttpResponse::Ok().body(format!("Hello {}!", counter))
-}
-
-#[post("/echo")]
-async fn echo(req_body: web::Bytes) -> impl Responder {
-    HttpResponse::Ok().body(req_body)
-}
-
-async fn manual_hello() -> impl Responder {
-    HttpResponse::Ok().body("Hey there!")
-}
 
 // TODO: add better error handling.
 #[post("/{chain_id}")]
@@ -61,13 +33,7 @@ fn create_app() -> App<
         InitError = (),
     >,
 > {
-    let counter = web::Data::new(AppStateWithCounter {
-        counter: Mutex::new(0),
-    });
-    App::new()
-        .app_data(counter)
-        .service(index)
-        .route("/hey", web::get().to(manual_hello))
+    App::new().service(index)
 }
 
 #[actix_web::main]
@@ -78,18 +44,3 @@ async fn main() -> std::io::Result<()> {
         .run()
         .await
 }
-
-// #[cfg(test)]
-// mod tests {
-//     use super::*;
-//     use actix_web::test;
-//     use actix_web::web::Bytes;
-
-//     #[actix_web::test]
-//     async fn test_hello() {
-//         let app = test::init_service(App::new().service(hello)).await;
-//         let req = test::TestRequest::get().uri("/").to_request();
-//         let resp: String = test::call_and_read_body(&app, req).await;
-//         assert_eq!(resp, "Hello 1!");
-//     }
-// }

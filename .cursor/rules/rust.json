@@ -1,0 +1,17 @@
+{
+  "pattern": "**/*.rs",
+  "description": "Rules for Rust development",
+  "instructions": [
+    "Follow Rust idioms and best practices",
+    "Use Result and Option types for error handling",
+    "Prefer immutable variables by default",
+    "Follow the Rust API guidelines",
+    "Use meaningful variable names that reflect their purpose",
+    "Add documentation comments for public functions and types",
+    "Implement proper error handling using custom error types",
+    "Use async/await for asynchronous operations",
+    "Follow the standard Rust formatting style",
+    "Use proper lifetimes and ownership patterns",
+    "Make sure the code compiles and runs and passes all tests before reporting success"
+  ]
+}
