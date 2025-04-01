@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::env;
 use std::time::Duration;
 use url::Url;
 
@@ -165,8 +166,42 @@ fn default_weight() -> u32 {
 }
 
 impl Config {
+    fn resolve_env_vars(value: &str) -> String {
+        if value.starts_with('$') {
+            let var_name = value.trim_start_matches('$');
+            env::var(var_name).unwrap_or_else(|_| format!("env://{}", value))
+        } else {
+            value.to_string()
+        }
+    }
+
     pub fn from_toml_str(s: &str) -> Result<Self, toml::de::Error> {
-        let config: Config = toml::from_str(s)?;
+        let mut config: Config = toml::from_str(s)?;
+
+        // Resolve environment variables in URLs
+        for (_chain_id, chain) in &mut config.chains {
+            for upstream in &mut chain.upstreams {
+                let url_str = upstream.url.as_str();
+                if url_str.starts_with("env://") {
+                    let env_var = url_str.trim_start_matches("env://");
+                    let resolved_url = Self::resolve_env_vars(env_var);
+                    if resolved_url.starts_with("env://") {
+                        upstream.url = Url::parse(&resolved_url).unwrap();
+                    } else {
+                        let mut url = Url::parse(&resolved_url).map_err(|e| {
+                            toml::de::Error::from(serde::de::Error::custom(format!(
+                                "Invalid URL after env resolution: {}",
+                                e
+                            )))
+                        })?;
+                        if !url.path().ends_with('/') {
+                            url.set_path(&format!("{}/", url.path()));
+                        }
+                        upstream.url = url;
+                    }
+                }
+            }
+        }
 
         // Validate error handling configuration
         match &config.error_handling {
@@ -252,7 +287,15 @@ mod url_serde {
         D: Deserializer<'de>,
     {
         let s = String::deserialize(deserializer)?;
-        Url::from_str(&s).map_err(serde::de::Error::custom)
+        if s.starts_with('$') {
+            Ok(Url::parse(&format!("env://{}", s)).unwrap())
+        } else {
+            let mut url = Url::from_str(&s).map_err(serde::de::Error::custom)?;
+            if !url.path().ends_with('/') {
+                url.set_path(&format!("{}/", url.path()));
+            }
+            Ok(url)
+        }
     }
 }
 
@@ -319,6 +362,7 @@ mod chain_map_serde {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::collections::HashMap;
     use std::time::Duration;
 
     #[test]
@@ -638,5 +682,104 @@ mod tests {
 
         let result = Config::from_toml_str(config_str);
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_env_var_resolution() {
+        let config_str = r#"
+            [chains.1]
+            upstreams = [
+                { url = "$ALCHEMY_URL", weight = 1 }
+            ]
+        "#;
+
+        // Set up test environment
+        unsafe {
+            std::env::set_var(
+                "ALCHEMY_URL",
+                "https://eth-mainnet.g.alchemy.com/v2/test-key",
+            );
+        }
+
+        let config = Config::from_toml_str(config_str).unwrap();
+        let url = &config.chains.get(&1).unwrap().upstreams[0].url;
+        assert_eq!(
+            url.as_str(),
+            "https://eth-mainnet.g.alchemy.com/v2/test-key/"
+        );
+
+        // Clean up
+        unsafe {
+            std::env::remove_var("ALCHEMY_URL");
+        }
+    }
+
+    #[test]
+    fn test_missing_env_var() {
+        let config_str = r#"
+            [chains.1]
+            upstreams = [
+                { url = "$MISSING_URL", weight = 1 }
+            ]
+        "#;
+
+        let config = Config::from_toml_str(config_str).unwrap();
+        let url = &config.chains.get(&1).unwrap().upstreams[0].url;
+        assert_eq!(url.as_str(), "env://$MISSING_URL");
+    }
+
+    #[test]
+    fn test_invalid_url_after_env_resolution() {
+        let config_str = r#"
+            [chains.1]
+            upstreams = [
+                { url = "$INVALID_URL", weight = 1 }
+            ]
+        "#;
+
+        // Set up test environment
+        unsafe {
+            std::env::set_var("INVALID_URL", "not a valid url");
+        }
+
+        let result = Config::from_toml_str(config_str);
+        assert!(result.is_err());
+
+        // Clean up
+        unsafe {
+            std::env::remove_var("INVALID_URL");
+        }
+    }
+
+    #[test]
+    fn test_mixed_env_and_static_urls() {
+        let config_str = r#"
+            [chains.1]
+            upstreams = [
+                { url = "$ALCHEMY_URL", weight = 1 },
+                { url = "https://static-url.com", weight = 1 }
+            ]
+        "#;
+
+        // Set up test environment
+        unsafe {
+            std::env::set_var(
+                "ALCHEMY_URL",
+                "https://eth-mainnet.g.alchemy.com/v2/test-key",
+            );
+        }
+
+        let config = Config::from_toml_str(config_str).unwrap();
+        let chain = config.chains.get(&1).unwrap();
+        assert_eq!(
+            chain.upstreams[0].url.as_str(),
+            "https://eth-mainnet.g.alchemy.com/v2/test-key/"
+        );
+        assert_eq!(chain.upstreams[1].url.as_str(), "https://static-url.com/");
+
+        // Clean up
+        unsafe {
+            std::env::remove_var("ALCHEMY_URL");
+        }
     }
 }

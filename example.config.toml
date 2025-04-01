@@ -14,6 +14,6 @@ jitter = true
 
 [chains.1]
 upstreams = [
-  { url = "http://localhost:8545", timeout = "10s", weight = 1 },
-  { url = "http://localhost:8546", timeout = "10s", weight = 2 },
+  { url = "$ALCHEMY_URL", timeout = "10s", weight = 1 },
+  { url = "$INFURA_URL", timeout = "10s", weight = 2 },
 ]
