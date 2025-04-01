@@ -15,6 +15,7 @@
     "Make sure the code compiles and runs and passes all tests before reporting success",
     "Use the latest Rust edition: 2024",
     "Never downgrade crates. Always try using the latest version of all crates.",
-    "When running tests, use `cargo test --workspace` to run all tests in the workspace"
+    "When running tests, use `cargo test --workspace` to run all tests in the workspace",
+    "When logging, you should never do string interpolation. Always use structured logging with named fields."
   ]
 }

@@ -51,8 +51,8 @@ impl ChainRequestPool {
         load_balancing: LoadBalancingConfig,
     ) -> Self {
         info!(
-            "Creating new ChainRequestPool for chain: {:?}",
-            chain_config.chain
+            chain = ?chain_config.chain,
+            "Creating new ChainRequestPool"
         );
 
         let upstreams = chain_config
@@ -82,8 +82,10 @@ impl ChainRequestPool {
                 jitter,
             } => {
                 debug!(
-                    "Using retry strategy with max_retries={}, retry_delay={:?}, jitter={}",
-                    max_retries, retry_delay, jitter
+                    max_retries = %max_retries,
+                    retry_delay = ?retry_delay,
+                    jitter = %jitter,
+                    "Using retry strategy"
                 );
                 self.forward_with_retry(request, *max_retries, *retry_delay, *jitter)
                     .await
@@ -116,8 +118,8 @@ impl ChainRequestPool {
             match self.forward_once(request.clone()).await {
                 Ok(response) => {
                     info!(
-                        "Successfully forwarded request after {} retries",
-                        current_retry
+                        retry_count = %current_retry,
+                        "Successfully forwarded request"
                     );
                     return Ok(response);
                 }
@@ -131,10 +133,10 @@ impl ChainRequestPool {
                             retry_delay
                         };
                         warn!(
-                            "Request failed, retrying in {:?} (attempt {}/{})",
-                            delay,
-                            current_retry + 1,
-                            max_retries
+                            delay = ?delay,
+                            attempt = %current_retry + 1,
+                            max_retries = %max_retries,
+                            "Request failed, retrying"
                         );
                         tokio::time::sleep(delay).await;
                     }
@@ -159,8 +161,8 @@ impl ChainRequestPool {
             }
             LoadBalancingConfig::WeightedRoundRobin { weight_decay } => {
                 debug!(
-                    "Using weighted round-robin load balancing with decay={}",
-                    weight_decay
+                    weight_decay = %weight_decay,
+                    "Using weighted round-robin load balancing"
                 );
                 self.select_upstream_weighted_round_robin(*weight_decay)
                     .await?
@@ -173,7 +175,7 @@ impl ChainRequestPool {
             }
         };
 
-        debug!("Selected upstream: {:?}", upstream);
+        debug!(upstream = ?upstream, "Selected upstream");
         let response = self
             .client
             .post(upstream.config.url.as_str())
@@ -187,7 +189,6 @@ impl ChainRequestPool {
     }
 
     async fn select_upstream_round_robin(&self) -> Result<Upstream, Box<dyn std::error::Error>> {
-        // TODO: Implement round robin selection
         debug!("Selecting first upstream (round-robin not implemented)");
         let upstreams = self.upstreams.lock().await;
         Ok(upstreams[0].clone())
@@ -210,15 +211,16 @@ impl ChainRequestPool {
         }
 
         debug!(
-            "Selected upstream {} with weight {}",
-            selected_index, max_weight
+            selected_index = %selected_index,
+            max_weight = %max_weight,
+            "Selected upstream"
         );
 
         // Apply weight decay
         upstreams[selected_index].apply_weight_decay(weight_decay);
         debug!(
-            "Applied weight decay, new weight: {}",
-            upstreams[selected_index].current_weight
+            new_weight = %upstreams[selected_index].current_weight,
+            "Applied weight decay"
         );
 
         Ok(upstreams[selected_index].clone())

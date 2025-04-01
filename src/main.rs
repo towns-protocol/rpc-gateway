@@ -21,21 +21,27 @@ async fn index(
 ) -> Result<String> {
     let chain_id = path.into_inner();
     debug!(
-        "Received JSON-RPC request for chain {}: {:?}",
-        chain_id, request
+        chain_id = %chain_id,
+        request = ?request,
+        "Received JSON-RPC request"
     );
 
     let response = gateway
         .forward_request(chain_id, request.into_inner())
         .await
         .map_err(|e| {
-            error!("Error forwarding request to chain {}: {}", chain_id, e);
+            error!(
+                chain_id = %chain_id,
+                error = %e,
+                "Error forwarding request"
+            );
             actix_web::error::ErrorInternalServerError(e)
         })?;
 
     debug!(
-        "Successfully forwarded request for chain {}: {:?}",
-        chain_id, response
+        chain_id = %chain_id,
+        response = ?response,
+        "Successfully forwarded request"
     );
     Ok(serde_json::to_string(&response)?)
 }
@@ -74,19 +80,20 @@ async fn main() -> std::io::Result<()> {
         .with_line_number(true)
         .init();
 
-    info!("Starting RPC Gateway...");
+    info!("Starting RPC Gateway");
 
     // Load configuration from file
     let config =
         Config::from_toml_file("example.config.toml").expect("Failed to load configuration");
-    info!("Loaded configuration: {:?}", config);
+    info!(config = ?config, "Loaded configuration");
 
     let server_config = config.clone();
 
     // Use the function in the HttpServer with the loaded config
     info!(
-        "Starting server on {}:{}",
-        server_config.server.host, server_config.server.port
+        host = %server_config.server.host,
+        port = %server_config.server.port,
+        "Starting server"
     );
 
     HttpServer::new(move || create_app(config.clone()))

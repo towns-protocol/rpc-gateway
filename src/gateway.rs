@@ -13,7 +13,7 @@ pub struct Gateway {
 
 impl Gateway {
     pub fn new(config: Config) -> Self {
-        info!("Creating new Gateway with config: {:?}", config);
+        info!(config = ?config, "Creating new Gateway");
         let mut pools = HashMap::new();
 
         for (chain_id, chain_config) in config.chains {
@@ -34,10 +34,10 @@ impl Gateway {
         chain_id: u64,
         request: Request<Value>,
     ) -> Result<Response<Value>, Box<dyn std::error::Error>> {
-        debug!("Forwarding request for chain {}", chain_id);
+        debug!(chain_id = %chain_id, "Forwarding request");
 
         let pool = self.pools.get(&chain_id).ok_or_else(|| {
-            error!("Chain {} not found in configuration", chain_id);
+            error!(chain_id = %chain_id, "Chain not found in configuration");
             format!("Chain {} not found", chain_id)
         })?;
 
@@ -47,14 +47,16 @@ impl Gateway {
         match &response.payload {
             ResponsePayload::Success(result) => {
                 info!(
-                    "Received successful response for chain {}: {:?}",
-                    chain_id, result
+                    chain_id = %chain_id,
+                    result = ?result,
+                    "Received successful response"
                 );
             }
             ResponsePayload::Failure(error) => {
                 error!(
-                    "Received error response for chain {}: {:?}",
-                    chain_id, error
+                    chain_id = %chain_id,
+                    error = ?error,
+                    "Received error response"
                 );
             }
         }
