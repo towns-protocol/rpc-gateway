@@ -1,4 +1,4 @@
-use alloy_json_rpc::{Request, Response};
+use alloy_json_rpc::{Request, Response, ResponsePayload};
 use rpc_gateway_config::Config;
 use serde_json::Value;
 use std::collections::HashMap;
@@ -41,6 +41,24 @@ impl Gateway {
             format!("Chain {} not found", chain_id)
         })?;
 
-        pool.forward_request(request).await
+        let response = pool.forward_request(request).await?;
+
+        // Log the response based on whether it's an error or result
+        match &response.payload {
+            ResponsePayload::Success(result) => {
+                info!(
+                    "Received successful response for chain {}: {:?}",
+                    chain_id, result
+                );
+            }
+            ResponsePayload::Failure(error) => {
+                error!(
+                    "Received error response for chain {}: {:?}",
+                    chain_id, error
+                );
+            }
+        }
+
+        Ok(response)
     }
 }
