@@ -395,6 +395,19 @@ impl Default for FileLogConfig {
     }
 }
 
+pub trait UrlProcessor {
+    fn process_url(&self, url_str: &str) -> Result<String, String>;
+}
+
+#[derive(Debug, Clone)]
+pub struct DefaultUrlProcessor;
+
+impl UrlProcessor for DefaultUrlProcessor {
+    fn process_url(&self, url_str: &str) -> Result<String, String> {
+        Ok(url_str.to_string())
+    }
+}
+
 mod url_serde {
     use super::*;
     use serde::{Deserializer, Serializer};
@@ -411,8 +424,22 @@ mod url_serde {
     where
         D: Deserializer<'de>,
     {
+        deserialize_with_processor(deserializer, &DefaultUrlProcessor)
+    }
+
+    pub fn deserialize_with_processor<'de, D, P>(
+        deserializer: D,
+        processor: &P,
+    ) -> Result<Url, D::Error>
+    where
+        D: Deserializer<'de>,
+        P: UrlProcessor,
+    {
         let s = String::deserialize(deserializer)?;
-        let mut url = Url::from_str(&s).map_err(serde::de::Error::custom)?;
+        let processed_url = processor
+            .process_url(&s)
+            .map_err(serde::de::Error::custom)?;
+        let mut url = Url::from_str(&processed_url).map_err(serde::de::Error::custom)?;
         if !url.path().ends_with('/') {
             url.set_path(&format!("{}/", url.path()));
         }
