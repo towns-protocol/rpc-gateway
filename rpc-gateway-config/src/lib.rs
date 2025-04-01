@@ -25,14 +25,8 @@ pub struct ServerConfig {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct LoadBalancingConfig {
-    #[serde(flatten)]
-    pub mode: LoadBalancingMode,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
-pub enum LoadBalancingMode {
+pub enum LoadBalancingConfig {
     RoundRobin,
     WeightedRoundRobin {
         #[serde(default = "default_weight_decay")]
@@ -44,15 +38,15 @@ pub enum LoadBalancingMode {
     },
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ErrorHandlingConfig {
-    #[serde(flatten)]
-    pub mode: ErrorHandlingMode,
+impl Default for LoadBalancingConfig {
+    fn default() -> Self {
+        default_load_balancing_config()
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
-pub enum ErrorHandlingMode {
+pub enum ErrorHandlingConfig {
     Retry {
         #[serde(default = "default_max_retries")]
         max_retries: u32,
@@ -75,6 +69,12 @@ pub enum ErrorHandlingMode {
         #[serde(default = "default_half_open_requests")]
         half_open_requests: u32,
     },
+}
+
+impl Default for ErrorHandlingConfig {
+    fn default() -> Self {
+        default_error_handling_config()
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -134,14 +134,14 @@ fn default_port() -> u16 {
     9090
 }
 
-fn default_load_balancing_mode() -> LoadBalancingMode {
-    LoadBalancingMode::WeightedRoundRobin {
+fn default_load_balancing_config() -> LoadBalancingConfig {
+    LoadBalancingConfig::WeightedRoundRobin {
         weight_decay: default_weight_decay(),
     }
 }
 
-fn default_error_handling_mode() -> ErrorHandlingMode {
-    ErrorHandlingMode::Retry {
+fn default_error_handling_config() -> ErrorHandlingConfig {
+    ErrorHandlingConfig::Retry {
         max_retries: default_max_retries(),
         retry_delay: default_retry_delay(),
         jitter: default_retry_jitter(),
@@ -169,20 +169,20 @@ impl Config {
         let config: Config = toml::from_str(s)?;
 
         // Validate error handling configuration
-        match &config.error_handling.mode {
-            ErrorHandlingMode::Retry { max_retries, .. } if *max_retries == 0 => {
+        match &config.error_handling {
+            ErrorHandlingConfig::Retry { max_retries, .. } if *max_retries == 0 => {
                 return Err(serde::de::Error::custom(
                     "max_retries must be greater than 0",
                 ));
             }
-            ErrorHandlingMode::FailFast {
+            ErrorHandlingConfig::FailFast {
                 error_threshold, ..
             } if *error_threshold == 0 => {
                 return Err(serde::de::Error::custom(
                     "error_threshold must be greater than 0",
                 ));
             }
-            ErrorHandlingMode::CircuitBreaker {
+            ErrorHandlingConfig::CircuitBreaker {
                 failure_threshold,
                 half_open_requests,
                 ..
@@ -219,7 +219,7 @@ impl Default for Config {
     fn default() -> Self {
         Self {
             server: ServerConfig::default(),
-            load_balancing: LoadBalancingConfig::default(),
+            load_balancing: default_load_balancing_config(),
             error_handling: ErrorHandlingConfig::default(),
             chains: HashMap::new(),
         }
@@ -231,22 +231,6 @@ impl Default for ServerConfig {
         Self {
             host: default_host(),
             port: default_port(),
-        }
-    }
-}
-
-impl Default for LoadBalancingConfig {
-    fn default() -> Self {
-        Self {
-            mode: default_load_balancing_mode(),
-        }
-    }
-}
-
-impl Default for ErrorHandlingConfig {
-    fn default() -> Self {
-        Self {
-            mode: default_error_handling_mode(),
         }
     }
 }
@@ -343,12 +327,12 @@ mod tests {
         assert_eq!(config.server.host, "127.0.0.1");
         assert_eq!(config.server.port, 9090);
         assert!(matches!(
-            config.load_balancing.mode,
-            LoadBalancingMode::WeightedRoundRobin { weight_decay } if weight_decay == 0.5
+            config.load_balancing,
+            LoadBalancingConfig::WeightedRoundRobin { weight_decay } if weight_decay == 0.5
         ));
         assert!(matches!(
-            config.error_handling.mode,
-            ErrorHandlingMode::Retry {
+            config.error_handling,
+            ErrorHandlingConfig::Retry {
                 max_retries,
                 retry_delay,
                 jitter,
@@ -386,12 +370,12 @@ mod tests {
         assert_eq!(config.server.host, "localhost");
         assert_eq!(config.server.port, 8080);
         assert!(matches!(
-            config.load_balancing.mode,
-            LoadBalancingMode::WeightedRoundRobin { weight_decay } if weight_decay == 0.7
+            config.load_balancing,
+            LoadBalancingConfig::WeightedRoundRobin { weight_decay } if weight_decay == 0.7
         ));
         assert!(matches!(
-            config.error_handling.mode,
-            ErrorHandlingMode::CircuitBreaker {
+            config.error_handling,
+            ErrorHandlingConfig::CircuitBreaker {
                 failure_threshold,
                 reset_timeout,
                 half_open_requests,
@@ -423,8 +407,8 @@ mod tests {
 
         let config = Config::from_toml_str(config_str).unwrap();
         assert!(matches!(
-            config.error_handling.mode,
-            ErrorHandlingMode::FailFast {
+            config.error_handling,
+            ErrorHandlingConfig::FailFast {
                 error_threshold,
                 error_window,
             } if error_threshold == 10 && error_window == Duration::from_secs(30)
@@ -461,12 +445,12 @@ mod tests {
         assert_eq!(config.server.host, "localhost");
         assert_eq!(config.server.port, 9090); // default value
         assert!(matches!(
-            config.load_balancing.mode,
-            LoadBalancingMode::WeightedRoundRobin { weight_decay } if weight_decay == 0.5
+            config.load_balancing,
+            LoadBalancingConfig::WeightedRoundRobin { weight_decay } if weight_decay == 0.5
         )); // default value
         assert!(matches!(
-            config.error_handling.mode,
-            ErrorHandlingMode::Retry {
+            config.error_handling,
+            ErrorHandlingConfig::Retry {
                 max_retries,
                 retry_delay,
                 jitter,
@@ -528,8 +512,8 @@ mod tests {
         let config = Config::from_toml_str(config_str).unwrap();
 
         assert!(matches!(
-            config.error_handling.mode,
-            ErrorHandlingMode::Retry {
+            config.error_handling,
+            ErrorHandlingConfig::Retry {
                 retry_delay,
                 ..
             } if retry_delay == Duration::from_secs(1)
@@ -577,7 +561,7 @@ mod tests {
     }
 
     #[test]
-    fn test_invalid_load_balancing_mode() {
+    fn test_invalid_load_balancing_config() {
         let config_str = r#"
             [load_balancing]
             type = "invalid_mode"
@@ -588,7 +572,7 @@ mod tests {
     }
 
     #[test]
-    fn test_invalid_error_handling_mode() {
+    fn test_invalid_error_handling_config() {
         let config_str = r#"
             [error_handling]
             type = "invalid_mode"
