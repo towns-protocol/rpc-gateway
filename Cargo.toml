@@ -9,3 +9,21 @@ edition = "2024"
 [dependencies]
 rpc-gateway-core = { path = "./rpc-gateway-core" }
 rpc-gateway-config = { path = "./rpc-gateway-config" }
+
+# alloy = { version = "0.12.6", features = [
+#   "full",
+#   "rpc",
+#   "json-rpc",
+#   "rpc-types",
+#   "hyper",
+# ] }
+# eyre = "0.6.12"
+# tokio = { version = "1.44.1", features = ["full"] }
+serde_json = "1.0"
+tracing = "0.1.41"
+alloy-chains = { version = "0.1.68", features = ["serde"] }
+actix-web = "4.10.2"
+moka = { version = "0.12.10", features = ["future", "sync"] }
+reqwest = "0.12.15"
+serde = { version = "1.0.219", features = ["derive"] }
+alloy-json-rpc = "0.12.6"
