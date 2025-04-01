@@ -1,3 +1,4 @@
+use alloy_chains::Chain;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::env;
@@ -80,6 +81,8 @@ impl Default for ErrorHandlingConfig {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ChainConfig {
+    #[serde(skip)]
+    pub chain: Chain,
     pub upstreams: Vec<UpstreamConfig>,
 }
 
@@ -351,8 +354,9 @@ mod chain_map_serde {
     {
         let string_map: HashMap<String, ChainConfig> = HashMap::deserialize(deserializer)?;
         let mut map = HashMap::new();
-        for (k, v) in string_map {
+        for (k, mut v) in string_map {
             let key = u64::from_str(&k).map_err(serde::de::Error::custom)?;
+            v.chain = Chain::from_id(key);
             map.insert(key, v);
         }
         Ok(map)
@@ -427,6 +431,7 @@ mod tests {
         ));
 
         let chain = config.chains.get(&1).unwrap();
+        assert_eq!(chain.chain, Chain::from_id(1));
         assert_eq!(chain.upstreams.len(), 2);
 
         let first_upstream = &chain.upstreams[0];
@@ -781,5 +786,102 @@ mod tests {
         unsafe {
             std::env::remove_var("ALCHEMY_URL");
         }
+    }
+
+    #[test]
+    fn test_chain_field_derivation() {
+        let config_str = r#"
+            [chains.1]
+            upstreams = [
+                { url = "http://example.com" }
+            ]
+
+            [chains.5]
+            upstreams = [
+                { url = "http://example.com" }
+            ]
+
+            [chains.137]
+            upstreams = [
+                { url = "http://example.com" }
+            ]
+        "#;
+
+        let config = Config::from_toml_str(config_str).unwrap();
+
+        // Test Ethereum Mainnet (chain ID 1)
+        let chain1 = config.chains.get(&1).unwrap();
+        assert_eq!(chain1.chain, Chain::from_id(1));
+
+        // Test Goerli (chain ID 5)
+        let chain5 = config.chains.get(&5).unwrap();
+        assert_eq!(chain5.chain, Chain::from_id(5));
+
+        // Test Polygon Mainnet (chain ID 137)
+        let chain137 = config.chains.get(&137).unwrap();
+        assert_eq!(chain137.chain, Chain::from_id(137));
+    }
+
+    #[test]
+    fn test_chain_field_not_in_config() {
+        let config_str = r#"
+            [chains.1]
+            chain = "base"  # This should be ignored
+            upstreams = [
+                { url = "http://example.com" }
+            ]
+        "#;
+
+        let config = Config::from_toml_str(config_str).unwrap();
+        let chain = config.chains.get(&1).unwrap();
+
+        // The chain field should be derived from the chain ID (1) regardless of what's in the config
+        assert_eq!(chain.chain, Chain::from_id(1));
+    }
+
+    #[test]
+    fn test_multiple_chains_with_chain_field() {
+        let config_str = r#"
+            [chains.1]
+            upstreams = [
+                { url = "http://eth.example.com" }
+            ]
+
+            [chains.56]
+            upstreams = [
+                { url = "http://bsc.example.com" }
+            ]
+
+            [chains.137]
+            upstreams = [
+                { url = "http://polygon.example.com" }
+            ]
+        "#;
+
+        let config = Config::from_toml_str(config_str).unwrap();
+
+        // Verify each chain has the correct Chain value based on its ID
+        let eth_chain = config.chains.get(&1).unwrap();
+        assert_eq!(eth_chain.chain, Chain::from_id(1));
+
+        let bsc_chain = config.chains.get(&56).unwrap();
+        assert_eq!(bsc_chain.chain, Chain::from_id(56));
+
+        let polygon_chain = config.chains.get(&137).unwrap();
+        assert_eq!(polygon_chain.chain, Chain::from_id(137));
+
+        // Also verify the URLs are correct
+        assert_eq!(
+            eth_chain.upstreams[0].url.as_str(),
+            "http://eth.example.com/"
+        );
+        assert_eq!(
+            bsc_chain.upstreams[0].url.as_str(),
+            "http://bsc.example.com/"
+        );
+        assert_eq!(
+            polygon_chain.upstreams[0].url.as_str(),
+            "http://polygon.example.com/"
+        );
     }
 }

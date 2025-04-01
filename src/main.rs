@@ -1,7 +1,6 @@
 use actix_web::body::BoxBody;
 use actix_web::dev::{ServiceFactory, ServiceRequest, ServiceResponse};
 use actix_web::{App, Error, HttpServer, Result, post, web};
-use alloy_chains::Chain;
 use alloy_json_rpc;
 use request_pool::RequestPool;
 use rpc_gateway_config::Config;
