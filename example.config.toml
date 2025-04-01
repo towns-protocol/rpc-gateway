@@ -36,6 +36,6 @@ include_line_number = true
 
 [chains.1]
 upstreams = [
-  { url = "https://mainnet.infura.io/v3/YOUR_INFURA_API_KEY", timeout = "10s", weight = 1 },
-  { url = "https://mainnet.alchemy.com/YOUR_ALCHEMY_API_KEY", timeout = "10s", weight = 2 },
+  { url = "$ALCHEMY_URL", timeout = "10s", weight = 1 },
+  { url = "$INFURA_URL", timeout = "10s", weight = 2 },
 ]

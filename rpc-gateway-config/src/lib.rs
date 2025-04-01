@@ -400,11 +400,26 @@ pub trait UrlProcessor {
 }
 
 #[derive(Debug, Clone)]
+pub struct EnvVarUrlProcessor;
+
+impl UrlProcessor for EnvVarUrlProcessor {
+    fn process_url(&self, url_str: &str) -> Result<String, String> {
+        if url_str.starts_with('$') {
+            let var_name = url_str.trim_start_matches('$');
+            std::env::var(var_name)
+                .map_err(|e| format!("Environment variable '{}' not found: {}", var_name, e))
+        } else {
+            Ok(url_str.to_string())
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
 pub struct DefaultUrlProcessor;
 
 impl UrlProcessor for DefaultUrlProcessor {
     fn process_url(&self, url_str: &str) -> Result<String, String> {
-        Ok(url_str.to_string())
+        EnvVarUrlProcessor.process_url(url_str)
     }
 }
 
@@ -509,9 +524,62 @@ mod chain_map_serde {
 }
 
 #[cfg(test)]
+mod test_helpers {
+    use std::thread;
+    use std::time::Duration;
+
+    const MAX_RETRIES: u32 = 3;
+    const RETRY_DELAY_MS: u64 = 50;
+
+    pub fn set_env_var_with_retry(key: &str, value: &str) -> Result<(), String> {
+        let mut attempts = 0;
+        while attempts < MAX_RETRIES {
+            unsafe {
+                std::env::set_var(key, value);
+                match std::env::var(key) {
+                    Ok(val) if val == value => return Ok(()),
+                    _ => {
+                        attempts += 1;
+                        if attempts < MAX_RETRIES {
+                            thread::sleep(Duration::from_millis(RETRY_DELAY_MS));
+                        }
+                    }
+                }
+            }
+        }
+        Err(format!(
+            "Failed to set environment variable '{}' after {} attempts",
+            key, MAX_RETRIES
+        ))
+    }
+
+    pub fn remove_env_var_with_retry(key: &str) -> Result<(), String> {
+        let mut attempts = 0;
+        while attempts < MAX_RETRIES {
+            unsafe {
+                std::env::remove_var(key);
+                match std::env::var(key) {
+                    Err(_) => return Ok(()),
+                    _ => {
+                        attempts += 1;
+                        if attempts < MAX_RETRIES {
+                            thread::sleep(Duration::from_millis(RETRY_DELAY_MS));
+                        }
+                    }
+                }
+            }
+        }
+        Err(format!(
+            "Failed to remove environment variable '{}' after {} attempts",
+            key, MAX_RETRIES
+        ))
+    }
+}
+
+#[cfg(test)]
 mod tests {
     use super::*;
-    use std::collections::HashMap;
+    use crate::test_helpers::*;
     use std::time::Duration;
 
     #[test]
@@ -848,5 +916,61 @@ mod tests {
         let chain = config.chains.get(&1).unwrap();
         assert_eq!(chain.upstreams[0].url.as_str(), "https://api1.example.com/");
         assert_eq!(chain.upstreams[1].url.as_str(), "https://api2.example.com/");
+    }
+
+    #[test]
+    fn test_env_var_url() {
+        let config_str = r#"
+            [chains.1]
+            upstreams = [
+                { url = "$ALCHEMY_URL", weight = 1 }
+            ]
+        "#;
+
+        // Set up test environment
+        set_env_var_with_retry(
+            "ALCHEMY_URL",
+            "https://eth-mainnet.g.alchemy.com/v2/test-key",
+        )
+        .unwrap();
+
+        let config = Config::from_toml_str(config_str).unwrap();
+        let chain = config.chains.get(&1).unwrap();
+        assert_eq!(
+            chain.upstreams[0].url.as_str(),
+            "https://eth-mainnet.g.alchemy.com/v2/test-key/"
+        );
+
+        // Clean up
+        remove_env_var_with_retry("ALCHEMY_URL").unwrap();
+    }
+
+    #[test]
+    fn test_mixed_env_and_static_urls() {
+        let config_str = r#"
+            [chains.1]
+            upstreams = [
+                { url = "$ALCHEMY_URL", weight = 1 },
+                { url = "https://static-url.com", weight = 1 }
+            ]
+        "#;
+
+        // Set up test environment
+        set_env_var_with_retry(
+            "ALCHEMY_URL",
+            "https://eth-mainnet.g.alchemy.com/v2/test-key",
+        )
+        .unwrap();
+
+        let config = Config::from_toml_str(config_str).unwrap();
+        let chain = config.chains.get(&1).unwrap();
+        assert_eq!(
+            chain.upstreams[0].url.as_str(),
+            "https://eth-mainnet.g.alchemy.com/v2/test-key/"
+        );
+        assert_eq!(chain.upstreams[1].url.as_str(), "https://static-url.com/");
+
+        // Clean up
+        remove_env_var_with_retry("ALCHEMY_URL").unwrap();
     }
 }
