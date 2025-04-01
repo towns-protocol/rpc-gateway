@@ -85,6 +85,18 @@ pub struct ChainConfig {
     #[serde(skip)]
     pub chain: Chain,
     pub upstreams: Vec<UpstreamConfig>,
+    #[serde(default)]
+    block_time_ms: Option<u64>,
+}
+
+impl ChainConfig {
+    pub fn get_block_time(&self) -> Option<Duration> {
+        if let Some(block_time_ms) = self.block_time_ms {
+            Some(Duration::from_millis(block_time_ms))
+        } else {
+            self.chain.average_blocktime_hint()
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -391,6 +403,16 @@ impl Default for FileLogConfig {
             include_thread_names: default_include_thread_names(),
             include_file: default_include_file(),
             include_line_number: default_include_line_number(),
+        }
+    }
+}
+
+impl Default for ChainConfig {
+    fn default() -> Self {
+        Self {
+            chain: Chain::from_id(1),
+            upstreams: Vec::new(),
+            block_time_ms: None,
         }
     }
 }
@@ -972,5 +994,95 @@ mod tests {
 
         // Clean up
         remove_env_var_with_retry("ALCHEMY_URL").unwrap();
+    }
+
+    #[test]
+    fn test_chain_config_with_block_time() {
+        let config_str = r#"
+            [chains.1]
+            block_time_ms = 12000
+            upstreams = [
+                { url = "http://example.com" }
+            ]
+        "#;
+
+        let config = Config::from_toml_str(config_str).unwrap();
+        let chain = config.chains.get(&1).unwrap();
+        assert_eq!(chain.block_time_ms, Some(12000));
+    }
+
+    #[test]
+    fn test_chain_config_without_block_time() {
+        let config_str = r#"
+            [chains.1]
+            upstreams = [
+                { url = "http://example.com" }
+            ]
+        "#;
+
+        let config = Config::from_toml_str(config_str).unwrap();
+        let chain = config.chains.get(&1).unwrap();
+        assert_eq!(chain.block_time_ms, None);
+    }
+
+    #[test]
+    fn test_get_block_time_config_override() {
+        let mut chain_config = ChainConfig::default();
+        chain_config.block_time_ms = Some(5000); // 5 seconds
+        assert_eq!(
+            chain_config.get_block_time(),
+            Some(Duration::from_millis(5000))
+        );
+    }
+
+    #[test]
+    fn test_get_block_time_alloy_fallback() {
+        let mut chain_config = ChainConfig::default();
+        chain_config.block_time_ms = None;
+        chain_config.chain = Chain::from_id(1); // Ethereum Mainnet
+        assert_eq!(
+            chain_config.get_block_time(),
+            Some(Duration::from_millis(12000))
+        ); // 12 seconds
+
+        chain_config.chain = Chain::from_id(137); // Polygon
+        assert_eq!(
+            chain_config.get_block_time(),
+            Some(Duration::from_millis(2100))
+        ); // 2 seconds
+
+        chain_config.chain = Chain::from_id(56); // BSC
+        assert_eq!(
+            chain_config.get_block_time(),
+            Some(Duration::from_millis(3000))
+        ); // 3 seconds
+    }
+
+    #[test]
+    fn test_get_block_time_priority() {
+        let mut chain_config = ChainConfig::default();
+        chain_config.chain = Chain::from_id(1); // Ethereum Mainnet
+
+        // Config should take precedence over alloy chain's value
+        chain_config.block_time_ms = Some(5000); // 5 seconds
+        assert_eq!(
+            chain_config.get_block_time(),
+            Some(Duration::from_millis(5000))
+        );
+
+        // When config is None, should fall back to alloy chain's value
+        chain_config.block_time_ms = None;
+        assert_eq!(
+            chain_config.get_block_time(),
+            Some(Duration::from_millis(12000))
+        );
+    }
+
+    #[test]
+    fn test_get_block_time_unknown_chain() {
+        let mut chain_config = ChainConfig::default();
+        chain_config.chain = Chain::from_id(999999); // Unknown chain
+        chain_config.block_time_ms = None;
+        assert_eq!(chain_config.get_block_time(), None);
     }
 }
