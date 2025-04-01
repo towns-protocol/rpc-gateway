@@ -4,28 +4,29 @@ use serde_json::Value;
 use std::collections::HashMap;
 use tracing::{debug, error, info, instrument};
 
-use crate::request_pool::ChainRequestPool;
+use crate::chain_handler::ChainHandler;
 
 #[derive(Debug)]
 pub struct Gateway {
-    pools: HashMap<u64, ChainRequestPool>,
+    handlers: HashMap<u64, ChainHandler>,
 }
 
 impl Gateway {
     pub fn new(config: Config) -> Self {
         info!(config = ?config, "Creating new Gateway");
-        let mut pools = HashMap::new();
+        let mut handlers = HashMap::new();
 
         for (chain_id, chain_config) in config.chains {
-            let pool = ChainRequestPool::new(
+            let handler = ChainHandler::new(
                 chain_config,
                 config.error_handling.clone(),
                 config.load_balancing.clone(),
+                1000, // Default cache capacity
             );
-            pools.insert(chain_id, pool);
+            handlers.insert(chain_id, handler);
         }
 
-        Self { pools }
+        Self { handlers }
     }
 
     #[instrument(skip(self, request), fields(chain_id = %chain_id))]
@@ -36,12 +37,12 @@ impl Gateway {
     ) -> Result<Response<Value>, Box<dyn std::error::Error>> {
         debug!(chain_id = %chain_id, "Forwarding request");
 
-        let pool = self.pools.get(&chain_id).ok_or_else(|| {
+        let handler = self.handlers.get(&chain_id).ok_or_else(|| {
             error!(chain_id = %chain_id, "Chain not found in configuration");
             format!("Chain {} not found", chain_id)
         })?;
 
-        let response = pool.forward_request(request).await?;
+        let response = handler.handle_request(request).await?;
 
         // Log the response based on whether it's an error or result
         match &response.payload {

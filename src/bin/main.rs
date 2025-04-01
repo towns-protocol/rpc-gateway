@@ -2,16 +2,12 @@ use actix_web::body::BoxBody;
 use actix_web::dev::{ServiceFactory, ServiceRequest, ServiceResponse};
 use actix_web::{post, web, App, Error, HttpServer, Result};
 use alloy_json_rpc;
-use gateway::Gateway;
+use rpc_gateway::gateway::Gateway;
+use rpc_gateway::logging;
 use rpc_gateway_config::Config;
 use serde_json::Value;
 use tracing::{debug, error, info};
 use tracing_actix_web::{StreamSpan, TracingLogger};
-
-mod cache;
-mod gateway;
-mod logging;
-mod request_pool;
 
 // TODO: add better error handling.
 #[post("/{chain_id}")]

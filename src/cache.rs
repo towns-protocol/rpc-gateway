@@ -1,3 +1,4 @@
+use alloy_chains::Chain;
 use moka::future::Cache;
 use moka::Expiry;
 use serde_json::Value;
@@ -60,17 +61,18 @@ impl Expiry<String, CacheEntry> for TtlExpiry {
 pub struct RpcCache {
     /// The underlying cache implementation
     cache: Cache<String, CacheEntry>,
+    /// The chain this cache is for
+    chain: Chain,
 }
 
 impl RpcCache {
-    // TODO: test cache capacity
-    /// Creates a new cache with the given maximum capacity
-    pub fn new(max_capacity: u64) -> Self {
+    /// Creates a new cache with the given maximum capacity and chain
+    pub fn new(max_capacity: u64, chain: Chain) -> Self {
         let cache = Cache::builder()
             .max_capacity(max_capacity)
             .expire_after(TtlExpiry)
             .build();
-        Self { cache }
+        Self { cache, chain }
     }
 
     fn hash_key(method: &Cow<'static, str>, params: &Value) -> String {
@@ -112,6 +114,22 @@ impl RpcCache {
         let entry = CacheEntry::new(reqres, ttl);
         self.cache.insert(key.to_string(), entry).await;
     }
+
+    /// Returns the TTL for a given method if it's cacheable
+    pub fn get_ttl(&self, method: &str) -> Option<Duration> {
+        match method {
+            "eth_blockNumber" => Some(Duration::from_secs(1)),
+            "eth_getBalance" => Some(Duration::from_secs(10)),
+            "eth_getTransactionCount" => Some(Duration::from_secs(10)),
+            "eth_getCode" => Some(Duration::from_secs(300)), // 5 minutes
+            "eth_call" => Some(Duration::from_secs(1)),
+            "eth_estimateGas" => Some(Duration::from_secs(1)),
+            "eth_gasPrice" => Some(Duration::from_secs(10)),
+            "eth_maxPriorityFeePerGas" => Some(Duration::from_secs(10)),
+            "eth_feeHistory" => Some(Duration::from_secs(10)),
+            _ => None,
+        }
+    }
 }
 
 #[cfg(test)]
@@ -121,7 +139,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_cache_ttl() {
-        let cache = RpcCache::new(100);
+        let cache = RpcCache::new(100, Chain::from_id(1));
         let method = Cow::Borrowed("eth_getBalance");
         let params = Value::Array(vec![
             Value::String("0x123".to_string()),
@@ -147,7 +165,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_cache_different_methods() {
-        let cache = RpcCache::new(100);
+        let cache = RpcCache::new(100, Chain::from_id(1));
         let ttl = Duration::from_secs(60);
 
         // Insert values for different methods
@@ -173,7 +191,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_cache_different_params() {
-        let cache = RpcCache::new(100);
+        let cache = RpcCache::new(100, Chain::from_id(1));
         let method = Cow::Borrowed("eth_getBalance");
         let ttl = Duration::from_secs(60);
 
@@ -200,5 +218,21 @@ mod tests {
         assert!(cached2.is_some());
         assert_eq!(cached1.unwrap().response, response1);
         assert_eq!(cached2.unwrap().response, response2);
+    }
+
+    #[test]
+    fn test_ttl_values() {
+        let cache = RpcCache::new(100, Chain::from_id(1));
+
+        assert_eq!(
+            cache.get_ttl("eth_blockNumber"),
+            Some(Duration::from_secs(1))
+        );
+        assert_eq!(
+            cache.get_ttl("eth_getBalance"),
+            Some(Duration::from_secs(10))
+        );
+        assert_eq!(cache.get_ttl("eth_getCode"), Some(Duration::from_secs(300)));
+        assert_eq!(cache.get_ttl("eth_sendTransaction"), None);
     }
 }
