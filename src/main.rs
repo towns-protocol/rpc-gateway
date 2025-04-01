@@ -9,6 +9,7 @@ use tracing::{debug, error, info};
 use tracing_actix_web::{StreamSpan, TracingLogger};
 use tracing_subscriber::{fmt, EnvFilter};
 
+mod cache;
 mod gateway;
 mod logging;
 mod request_pool;
