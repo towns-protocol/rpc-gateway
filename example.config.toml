@@ -2,35 +2,18 @@
 host = "127.0.0.1"
 port = 9090
 
-[logging]
-level = "info"
-format = "text"
-color = true
+[load_balancing]
+type = "weighted_round_robin"
+weight_decay = 0.5
 
-[cache]
-enabled = true
+[error_handling]
+type = "retry"
+max_retries = 3
+retry_delay = "1s"
+jitter = true
 
-[method_filter]
-mode = "whitelist"
-methods = [
-  "eth_blockNumber",
-  "eth_call",
-  "eth_chainId",
-  "eth_estimateGas",
-  "eth_gasPrice",
-  "eth_getBalance",
-  "eth_getCode",
-  "eth_getTransactionCount",
-  "eth_getTransactionReceipt",
-  "net_version",
+[chains.1]
+upstreams = [
+  { url = "http://localhost:8545", timeout = "10s", weight = 1 },
+  { url = "http://localhost:8546", timeout = "10s", weight = 2 },
 ]
-
-[[chains.1.upstreams]]
-url = "url1"
-timeout = "10s"
-weight = 1
-
-[[chains.1.upstreams]]
-url = "url2"
-timeout = "10s"
-weight = 2

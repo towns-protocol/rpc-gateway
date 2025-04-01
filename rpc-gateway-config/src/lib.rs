@@ -1,1 +1,658 @@
+use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
+use std::time::Duration;
+use url::Url;
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Config {
+    #[serde(default)]
+    pub server: ServerConfig,
+    #[serde(default)]
+    pub load_balancing: LoadBalancingConfig,
+    #[serde(default)]
+    pub error_handling: ErrorHandlingConfig,
+    #[serde(default)]
+    #[serde(with = "chain_map_serde")]
+    pub chains: HashMap<u64, ChainConfig>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ServerConfig {
+    #[serde(default = "default_host")]
+    pub host: String,
+    #[serde(default = "default_port")]
+    pub port: u16,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LoadBalancingConfig {
+    #[serde(flatten)]
+    pub mode: LoadBalancingMode,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum LoadBalancingMode {
+    RoundRobin,
+    WeightedRoundRobin {
+        #[serde(default = "default_weight_decay")]
+        weight_decay: f64,
+    },
+    LeastConnections {
+        #[serde(default = "default_connection_multiplier")]
+        connection_multiplier: f64,
+    },
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ErrorHandlingConfig {
+    #[serde(flatten)]
+    pub mode: ErrorHandlingMode,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum ErrorHandlingMode {
+    Retry {
+        #[serde(default = "default_max_retries")]
+        max_retries: u32,
+        #[serde(default = "default_retry_delay", with = "duration_serde")]
+        retry_delay: Duration,
+        #[serde(default = "default_retry_jitter")]
+        jitter: bool,
+    },
+    FailFast {
+        #[serde(default = "default_error_threshold")]
+        error_threshold: u32,
+        #[serde(default = "default_error_window", with = "duration_serde")]
+        error_window: Duration,
+    },
+    CircuitBreaker {
+        #[serde(default = "default_failure_threshold")]
+        failure_threshold: u32,
+        #[serde(default = "default_reset_timeout", with = "duration_serde")]
+        reset_timeout: Duration,
+        #[serde(default = "default_half_open_requests")]
+        half_open_requests: u32,
+    },
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ChainConfig {
+    pub upstreams: Vec<UpstreamConfig>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UpstreamConfig {
+    #[serde(with = "url_serde")]
+    pub url: Url,
+    #[serde(default = "default_timeout", with = "duration_serde")]
+    pub timeout: Duration,
+    #[serde(default = "default_weight")]
+    pub weight: u32,
+}
+
+// Default functions for new fields
+fn default_weight_decay() -> f64 {
+    0.5
+}
+
+fn default_connection_multiplier() -> f64 {
+    1.5
+}
+
+fn default_retry_jitter() -> bool {
+    true
+}
+
+fn default_error_threshold() -> u32 {
+    5
+}
+
+fn default_error_window() -> Duration {
+    Duration::from_secs(60)
+}
+
+fn default_failure_threshold() -> u32 {
+    3
+}
+
+fn default_reset_timeout() -> Duration {
+    Duration::from_secs(30)
+}
+
+fn default_half_open_requests() -> u32 {
+    1
+}
+
+// Existing default functions
+fn default_host() -> String {
+    "127.0.0.1".to_string()
+}
+
+fn default_port() -> u16 {
+    9090
+}
+
+fn default_load_balancing_mode() -> LoadBalancingMode {
+    LoadBalancingMode::WeightedRoundRobin {
+        weight_decay: default_weight_decay(),
+    }
+}
+
+fn default_error_handling_mode() -> ErrorHandlingMode {
+    ErrorHandlingMode::Retry {
+        max_retries: default_max_retries(),
+        retry_delay: default_retry_delay(),
+        jitter: default_retry_jitter(),
+    }
+}
+
+fn default_max_retries() -> u32 {
+    3
+}
+
+fn default_retry_delay() -> Duration {
+    Duration::from_secs(1)
+}
+
+fn default_timeout() -> Duration {
+    Duration::from_secs(10)
+}
+
+fn default_weight() -> u32 {
+    1
+}
+
+impl Config {
+    pub fn from_toml_str(s: &str) -> Result<Self, toml::de::Error> {
+        let config: Config = toml::from_str(s)?;
+
+        // Validate error handling configuration
+        match &config.error_handling.mode {
+            ErrorHandlingMode::Retry { max_retries, .. } if *max_retries == 0 => {
+                return Err(serde::de::Error::custom(
+                    "max_retries must be greater than 0",
+                ));
+            }
+            ErrorHandlingMode::FailFast {
+                error_threshold, ..
+            } if *error_threshold == 0 => {
+                return Err(serde::de::Error::custom(
+                    "error_threshold must be greater than 0",
+                ));
+            }
+            ErrorHandlingMode::CircuitBreaker {
+                failure_threshold,
+                half_open_requests,
+                ..
+            } if *failure_threshold == 0 || *half_open_requests == 0 => {
+                return Err(serde::de::Error::custom(
+                    "failure_threshold and half_open_requests must be greater than 0",
+                ));
+            }
+            _ => {}
+        }
+
+        // Validate weights
+        for (chain_id, chain) in &config.chains {
+            for upstream in &chain.upstreams {
+                if upstream.weight == 0 {
+                    return Err(serde::de::Error::custom(format!(
+                        "weight must be greater than 0 in chain {}",
+                        chain_id
+                    )));
+                }
+            }
+        }
+
+        Ok(config)
+    }
+
+    pub fn from_toml_file(path: &str) -> Result<Self, Box<dyn std::error::Error>> {
+        let contents = std::fs::read_to_string(path)?;
+        Ok(Self::from_toml_str(&contents)?)
+    }
+}
+
+impl Default for Config {
+    fn default() -> Self {
+        Self {
+            server: ServerConfig::default(),
+            load_balancing: LoadBalancingConfig::default(),
+            error_handling: ErrorHandlingConfig::default(),
+            chains: HashMap::new(),
+        }
+    }
+}
+
+impl Default for ServerConfig {
+    fn default() -> Self {
+        Self {
+            host: default_host(),
+            port: default_port(),
+        }
+    }
+}
+
+impl Default for LoadBalancingConfig {
+    fn default() -> Self {
+        Self {
+            mode: default_load_balancing_mode(),
+        }
+    }
+}
+
+impl Default for ErrorHandlingConfig {
+    fn default() -> Self {
+        Self {
+            mode: default_error_handling_mode(),
+        }
+    }
+}
+
+mod url_serde {
+    use super::*;
+    use serde::{Deserializer, Serializer};
+    use std::str::FromStr;
+
+    pub fn serialize<S>(url: &Url, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        serializer.serialize_str(url.as_str())
+    }
+
+    pub fn deserialize<'de, D>(deserializer: D) -> Result<Url, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let s = String::deserialize(deserializer)?;
+        Url::from_str(&s).map_err(serde::de::Error::custom)
+    }
+}
+
+mod duration_serde {
+    use super::*;
+    use serde::{Deserializer, Serializer};
+
+    pub fn serialize<S>(duration: &Duration, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        serializer.serialize_str(&format!("{}s", duration.as_secs()))
+    }
+
+    pub fn deserialize<'de, D>(deserializer: D) -> Result<Duration, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let s = String::deserialize(deserializer)?;
+        if let Some(seconds) = s.strip_suffix('s') {
+            if let Ok(secs) = seconds.parse::<u64>() {
+                if secs > 0 {
+                    return Ok(Duration::from_secs(secs));
+                }
+            }
+        }
+        Err(serde::de::Error::custom(
+            "Duration must be a positive number followed by 's'",
+        ))
+    }
+}
+
+mod chain_map_serde {
+    use super::*;
+    use serde::{Deserializer, Serializer};
+    use std::collections::HashMap;
+    use std::str::FromStr;
+
+    pub fn serialize<S>(map: &HashMap<u64, ChainConfig>, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        let string_map: HashMap<String, ChainConfig> = map
+            .iter()
+            .map(|(k, v)| (k.to_string(), v.clone()))
+            .collect();
+        string_map.serialize(serializer)
+    }
+
+    pub fn deserialize<'de, D>(deserializer: D) -> Result<HashMap<u64, ChainConfig>, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let string_map: HashMap<String, ChainConfig> = HashMap::deserialize(deserializer)?;
+        let mut map = HashMap::new();
+        for (k, v) in string_map {
+            let key = u64::from_str(&k).map_err(serde::de::Error::custom)?;
+            map.insert(key, v);
+        }
+        Ok(map)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::time::Duration;
+
+    #[test]
+    fn test_default_config() {
+        let config = Config::default();
+        assert_eq!(config.server.host, "127.0.0.1");
+        assert_eq!(config.server.port, 9090);
+        assert!(matches!(
+            config.load_balancing.mode,
+            LoadBalancingMode::WeightedRoundRobin { weight_decay } if weight_decay == 0.5
+        ));
+        assert!(matches!(
+            config.error_handling.mode,
+            ErrorHandlingMode::Retry {
+                max_retries,
+                retry_delay,
+                jitter,
+            } if max_retries == 3 && retry_delay == Duration::from_secs(1) && jitter == true
+        ));
+        assert!(config.chains.is_empty());
+    }
+
+    #[test]
+    fn test_parse_valid_config() {
+        let config_str = r#"
+            [server]
+            host = "localhost"
+            port = 8080
+
+            [load_balancing]
+            type = "weighted_round_robin"
+            weight_decay = 0.7
+
+            [error_handling]
+            type = "circuit_breaker"
+            failure_threshold = 5
+            reset_timeout = "60s"
+            half_open_requests = 2
+
+            [chains.1]
+            upstreams = [
+                { url = "http://example.com", timeout = "5s", weight = 2 },
+                { url = "https://api.example.com", timeout = "10s", weight = 1 }
+            ]
+        "#;
+
+        let config = Config::from_toml_str(config_str).unwrap();
+
+        assert_eq!(config.server.host, "localhost");
+        assert_eq!(config.server.port, 8080);
+        assert!(matches!(
+            config.load_balancing.mode,
+            LoadBalancingMode::WeightedRoundRobin { weight_decay } if weight_decay == 0.7
+        ));
+        assert!(matches!(
+            config.error_handling.mode,
+            ErrorHandlingMode::CircuitBreaker {
+                failure_threshold,
+                reset_timeout,
+                half_open_requests,
+            } if failure_threshold == 5 && reset_timeout == Duration::from_secs(60) && half_open_requests == 2
+        ));
+
+        let chain = config.chains.get(&1).unwrap();
+        assert_eq!(chain.upstreams.len(), 2);
+
+        let first_upstream = &chain.upstreams[0];
+        assert_eq!(first_upstream.url.as_str(), "http://example.com/");
+        assert_eq!(first_upstream.timeout, Duration::from_secs(5));
+        assert_eq!(first_upstream.weight, 2);
+
+        let second_upstream = &chain.upstreams[1];
+        assert_eq!(second_upstream.url.as_str(), "https://api.example.com/");
+        assert_eq!(second_upstream.timeout, Duration::from_secs(10));
+        assert_eq!(second_upstream.weight, 1);
+    }
+
+    #[test]
+    fn test_parse_fail_fast_config() {
+        let config_str = r#"
+            [error_handling]
+            type = "fail_fast"
+            error_threshold = 10
+            error_window = "30s"
+        "#;
+
+        let config = Config::from_toml_str(config_str).unwrap();
+        assert!(matches!(
+            config.error_handling.mode,
+            ErrorHandlingMode::FailFast {
+                error_threshold,
+                error_window,
+            } if error_threshold == 10 && error_window == Duration::from_secs(30)
+        ));
+    }
+
+    #[test]
+    fn test_parse_invalid_url() {
+        let config_str = r#"
+            [chains.1]
+            upstreams = [
+                { url = "not a valid url", timeout = "5s", weight = 1 }
+            ]
+        "#;
+
+        let result = Config::from_toml_str(config_str);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_parse_partial_config() {
+        let config_str = r#"
+            [server]
+            host = "localhost"
+
+            [chains.1]
+            upstreams = [
+                { url = "http://example.com" }
+            ]
+        "#;
+
+        let config = Config::from_toml_str(config_str).unwrap();
+
+        assert_eq!(config.server.host, "localhost");
+        assert_eq!(config.server.port, 9090); // default value
+        assert!(matches!(
+            config.load_balancing.mode,
+            LoadBalancingMode::WeightedRoundRobin { weight_decay } if weight_decay == 0.5
+        )); // default value
+        assert!(matches!(
+            config.error_handling.mode,
+            ErrorHandlingMode::Retry {
+                max_retries,
+                retry_delay,
+                jitter,
+            } if max_retries == 3 && retry_delay == Duration::from_secs(1) && jitter == true
+        )); // default value
+
+        let chain = config.chains.get(&1).unwrap();
+        let upstream = &chain.upstreams[0];
+        assert_eq!(upstream.url.as_str(), "http://example.com/");
+        assert_eq!(upstream.timeout, Duration::from_secs(10)); // default value
+        assert_eq!(upstream.weight, 1); // default value
+    }
+
+    #[test]
+    fn test_multiple_chains() {
+        let config_str = r#"
+            [chains.1]
+            upstreams = [
+                { url = "http://chain1.example.com" }
+            ]
+
+            [chains.2]
+            upstreams = [
+                { url = "http://chain2.example.com" }
+            ]
+        "#;
+
+        let config = Config::from_toml_str(config_str).unwrap();
+
+        assert_eq!(config.chains.len(), 2);
+
+        let chain1 = config.chains.get(&1).unwrap();
+        assert_eq!(
+            chain1.upstreams[0].url.as_str(),
+            "http://chain1.example.com/"
+        );
+
+        let chain2 = config.chains.get(&2).unwrap();
+        assert_eq!(
+            chain2.upstreams[0].url.as_str(),
+            "http://chain2.example.com/"
+        );
+    }
+
+    #[test]
+    fn test_duration_parsing() {
+        let config_str = r#"
+            [error_handling]
+            type = "retry"
+            max_retries = 3
+            retry_delay = "1s"
+            jitter = true
+            [chains.1]
+            upstreams = [
+                { url = "http://example.com", timeout = "30s" }
+            ]
+        "#;
+
+        let config = Config::from_toml_str(config_str).unwrap();
+
+        assert!(matches!(
+            config.error_handling.mode,
+            ErrorHandlingMode::Retry {
+                retry_delay,
+                ..
+            } if retry_delay == Duration::from_secs(1)
+        ));
+        assert_eq!(
+            config.chains.get(&1).unwrap().upstreams[0].timeout,
+            Duration::from_secs(30)
+        );
+    }
+
+    #[test]
+    fn test_empty_upstreams() {
+        let config_str = r#"
+            [chains.1]
+            upstreams = []
+        "#;
+
+        let config = Config::from_toml_str(config_str).unwrap();
+        let chain = config.chains.get(&1).unwrap();
+        assert!(chain.upstreams.is_empty());
+    }
+
+    #[test]
+    fn test_invalid_duration() {
+        let config_str = r#"
+            [error_handling]
+            type = "retry"
+            max_retries = 3
+            retry_delay = "invalid duration"
+        "#;
+
+        let result = Config::from_toml_str(config_str);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_invalid_port() {
+        let config_str = r#"
+            [server]
+            port = 70000
+        "#;
+
+        let result = Config::from_toml_str(config_str);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_invalid_load_balancing_mode() {
+        let config_str = r#"
+            [load_balancing]
+            type = "invalid_mode"
+        "#;
+
+        let result = Config::from_toml_str(config_str);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_invalid_error_handling_mode() {
+        let config_str = r#"
+            [error_handling]
+            type = "invalid_mode"
+        "#;
+
+        let result = Config::from_toml_str(config_str);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_duplicate_chain_ids() {
+        let config_str = r#"
+            [chains.1]
+            upstreams = [
+                { url = "http://example1.com" }
+            ]
+
+            [chains.1]
+            upstreams = [
+                { url = "http://example2.com" }
+            ]
+        "#;
+
+        let result = Config::from_toml_str(config_str);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_zero_weight() {
+        let config_str = r#"
+            [chains.1]
+            upstreams = [
+                { url = "http://example.com", weight = 0 }
+            ]
+        "#;
+
+        let result = Config::from_toml_str(config_str);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_zero_timeout() {
+        let config_str = r#"
+            [chains.1]
+            upstreams = [
+                { url = "http://example.com", timeout = "0s" }
+            ]
+        "#;
+
+        let result = Config::from_toml_str(config_str);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_zero_max_retries() {
+        let config_str = r#"
+            [error_handling]
+            type = "retry"
+            max_retries = 0
+            retry_delay = "1s"
+            jitter = true
+        "#;
+
+        let result = Config::from_toml_str(config_str);
+        assert!(result.is_err());
+    }
+}

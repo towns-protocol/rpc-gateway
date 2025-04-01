@@ -12,6 +12,9 @@
     "Use async/await for asynchronous operations",
     "Follow the standard Rust formatting style",
     "Use proper lifetimes and ownership patterns",
-    "Make sure the code compiles and runs and passes all tests before reporting success"
+    "Make sure the code compiles and runs and passes all tests before reporting success",
+    "Use the latest Rust edition: 2024",
+    "Never downgrade crates. Always try using the latest version of all crates.",
+    "When running tests, use `cargo test --workspace` to run all tests in the workspace"
   ]
 }
