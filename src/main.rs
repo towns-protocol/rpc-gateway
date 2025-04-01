@@ -2,13 +2,14 @@ use actix_web::body::BoxBody;
 use actix_web::dev::{ServiceFactory, ServiceRequest, ServiceResponse};
 use actix_web::{App, Error, HttpServer, Result, post, web};
 use alloy_json_rpc;
-use request_pool::RequestPool;
+use gateway::Gateway;
 use rpc_gateway_config::Config;
 use serde_json::Value;
 use tracing::{debug, error, info};
 use tracing_actix_web::{StreamSpan, TracingLogger};
 use tracing_subscriber::{EnvFilter, fmt};
 
+mod gateway;
 mod request_pool;
 
 // TODO: add better error handling.
@@ -16,7 +17,7 @@ mod request_pool;
 async fn index(
     path: web::Path<u64>,
     request: web::Json<alloy_json_rpc::Request<Value>>,
-    pool: web::Data<RequestPool>,
+    gateway: web::Data<Gateway>,
 ) -> Result<String> {
     let chain_id = path.into_inner();
     debug!(
@@ -24,7 +25,7 @@ async fn index(
         chain_id, request
     );
 
-    let response = pool
+    let response = gateway
         .forward_request(chain_id, request.into_inner())
         .await
         .map_err(|e| {
@@ -51,10 +52,10 @@ fn create_app(
         InitError = (),
     >,
 > {
-    let pool = RequestPool::new(config.clone());
+    let gateway = Gateway::new(config.clone());
     App::new()
         .wrap(TracingLogger::default())
-        .app_data(web::Data::new(pool))
+        .app_data(web::Data::new(gateway))
         .service(index)
 }
 

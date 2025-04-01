@@ -10,37 +10,72 @@ use std::time::Duration;
 use tokio::sync::Mutex;
 use tracing::{debug, error, info, instrument, warn};
 
-#[derive(Debug)]
-pub struct RequestPool {
-    config: Arc<Config>,
-    client: Client,
-    upstream_weights: Arc<Mutex<Vec<f64>>>,
+#[derive(Debug, Clone)]
+struct Upstream {
+    config: UpstreamConfig,
+    current_weight: f64,
+    active_connections: u32,
 }
 
-impl RequestPool {
-    pub fn new(config: Config) -> Self {
-        info!("Creating new RequestPool with config: {:?}", config);
+impl Upstream {
+    fn new(config: UpstreamConfig) -> Self {
         Self {
-            config: Arc::new(config),
-            client: Client::new(),
-            upstream_weights: Arc::new(Mutex::new(Vec::new())),
+            current_weight: config.weight as f64,
+            active_connections: 0,
+            config,
         }
     }
 
-    #[instrument(skip(self, request), fields(chain_id = %chain_id))]
+    fn apply_weight_decay(&mut self, decay: f64) {
+        self.current_weight *= decay;
+    }
+
+    fn reset_weight(&mut self) {
+        self.current_weight = self.config.weight as f64;
+    }
+}
+
+#[derive(Debug)]
+pub struct ChainRequestPool {
+    chain_config: Arc<ChainConfig>,
+    client: Client,
+    upstreams: Arc<Mutex<Vec<Upstream>>>,
+    error_handling: Arc<ErrorHandlingConfig>,
+    load_balancing: Arc<LoadBalancingConfig>,
+}
+
+impl ChainRequestPool {
+    pub fn new(
+        chain_config: ChainConfig,
+        error_handling: ErrorHandlingConfig,
+        load_balancing: LoadBalancingConfig,
+    ) -> Self {
+        info!(
+            "Creating new ChainRequestPool for chain: {:?}",
+            chain_config.chain
+        );
+
+        let upstreams = chain_config
+            .upstreams
+            .iter()
+            .map(|config| Upstream::new(config.clone()))
+            .collect();
+
+        Self {
+            chain_config: Arc::new(chain_config),
+            client: Client::new(),
+            upstreams: Arc::new(Mutex::new(upstreams)),
+            error_handling: Arc::new(error_handling),
+            load_balancing: Arc::new(load_balancing),
+        }
+    }
+
+    #[instrument(skip(self, request))]
     pub async fn forward_request(
         &self,
-        chain_id: u64,
         request: Request<Value>,
     ) -> Result<Response<Value>, Box<dyn std::error::Error>> {
-        debug!("Forwarding request for chain {}", chain_id);
-
-        let chain_config = self.config.chains.get(&chain_id).ok_or_else(|| {
-            error!("Chain {} not found in configuration", chain_id);
-            format!("Chain {} not found", chain_id)
-        })?;
-
-        match &self.config.error_handling {
+        match &*self.error_handling {
             ErrorHandlingConfig::Retry {
                 max_retries,
                 retry_delay,
@@ -50,26 +85,25 @@ impl RequestPool {
                     "Using retry strategy with max_retries={}, retry_delay={:?}, jitter={}",
                     max_retries, retry_delay, jitter
                 );
-                self.forward_with_retry(chain_config, request, *max_retries, *retry_delay, *jitter)
+                self.forward_with_retry(request, *max_retries, *retry_delay, *jitter)
                     .await
             }
             ErrorHandlingConfig::FailFast { .. } => {
                 debug!("Using fail-fast strategy");
-                self.forward_once(chain_config, request).await
+                self.forward_once(request).await
             }
             ErrorHandlingConfig::CircuitBreaker { .. } => {
                 warn!(
                     "Circuit breaker strategy not yet implemented, falling back to single attempt"
                 );
-                self.forward_once(chain_config, request).await
+                self.forward_once(request).await
             }
         }
     }
 
-    #[instrument(skip(self, chain_config, request))]
+    #[instrument(skip(self, request))]
     async fn forward_with_retry(
         &self,
-        chain_config: &ChainConfig,
         request: Request<Value>,
         max_retries: u32,
         retry_delay: Duration,
@@ -79,7 +113,7 @@ impl RequestPool {
         let mut current_retry = 0;
 
         while current_retry <= max_retries {
-            match self.forward_once(chain_config, request.clone()).await {
+            match self.forward_once(request.clone()).await {
                 Ok(response) => {
                     info!(
                         "Successfully forwarded request after {} retries",
@@ -113,37 +147,36 @@ impl RequestPool {
         Err(last_error.unwrap_or_else(|| "Unknown error".into()))
     }
 
-    #[instrument(skip(self, chain_config, request))]
+    #[instrument(skip(self, request))]
     async fn forward_once(
         &self,
-        chain_config: &ChainConfig,
         request: Request<Value>,
     ) -> Result<Response<Value>, Box<dyn std::error::Error>> {
-        let upstream = match &self.config.load_balancing {
+        let upstream = match &*self.load_balancing {
             LoadBalancingConfig::RoundRobin => {
                 debug!("Using round-robin load balancing");
-                self.select_upstream_round_robin(chain_config).await?
+                self.select_upstream_round_robin().await?
             }
             LoadBalancingConfig::WeightedRoundRobin { weight_decay } => {
                 debug!(
                     "Using weighted round-robin load balancing with decay={}",
                     weight_decay
                 );
-                self.select_upstream_weighted_round_robin(chain_config, *weight_decay)
+                self.select_upstream_weighted_round_robin(*weight_decay)
                     .await?
             }
             LoadBalancingConfig::LeastConnections { .. } => {
                 warn!(
                     "Least connections strategy not yet implemented, falling back to round-robin"
                 );
-                self.select_upstream_round_robin(chain_config).await?
+                self.select_upstream_round_robin().await?
             }
         };
 
         debug!("Selected upstream: {:?}", upstream);
         let response = self
             .client
-            .post(upstream.url.as_str())
+            .post(upstream.config.url.as_str())
             .json(&request)
             .send()
             .await?
@@ -153,36 +186,25 @@ impl RequestPool {
         Ok(response)
     }
 
-    async fn select_upstream_round_robin<'a>(
-        &self,
-        chain_config: &'a ChainConfig,
-    ) -> Result<&'a UpstreamConfig, Box<dyn std::error::Error>> {
+    async fn select_upstream_round_robin(&self) -> Result<Upstream, Box<dyn std::error::Error>> {
         // TODO: Implement round robin selection
         debug!("Selecting first upstream (round-robin not implemented)");
-        Ok(&chain_config.upstreams[0])
+        let upstreams = self.upstreams.lock().await;
+        Ok(upstreams[0].clone())
     }
 
-    async fn select_upstream_weighted_round_robin<'a>(
+    async fn select_upstream_weighted_round_robin(
         &self,
-        chain_config: &'a ChainConfig,
         weight_decay: f64,
-    ) -> Result<&'a UpstreamConfig, Box<dyn std::error::Error>> {
-        let mut weights = self.upstream_weights.lock().await;
-        if weights.is_empty() {
-            debug!("Initializing upstream weights");
-            *weights = chain_config
-                .upstreams
-                .iter()
-                .map(|u| u.weight as f64)
-                .collect();
-        }
+    ) -> Result<Upstream, Box<dyn std::error::Error>> {
+        let mut upstreams = self.upstreams.lock().await;
 
         // Find the upstream with the highest weight
         let mut max_weight = f64::NEG_INFINITY;
         let mut selected_index = 0;
-        for (i, &weight) in weights.iter().enumerate() {
-            if weight > max_weight {
-                max_weight = weight;
+        for (i, upstream) in upstreams.iter().enumerate() {
+            if upstream.current_weight > max_weight {
+                max_weight = upstream.current_weight;
                 selected_index = i;
             }
         }
@@ -193,23 +215,12 @@ impl RequestPool {
         );
 
         // Apply weight decay
-        weights[selected_index] *= weight_decay;
+        upstreams[selected_index].apply_weight_decay(weight_decay);
         debug!(
             "Applied weight decay, new weight: {}",
-            weights[selected_index]
+            upstreams[selected_index].current_weight
         );
 
-        Ok(&chain_config.upstreams[selected_index])
-    }
-
-    #[allow(dead_code)]
-    async fn select_upstream_random<'a>(
-        &self,
-        chain_config: &'a ChainConfig,
-    ) -> Result<&'a UpstreamConfig, Box<dyn std::error::Error>> {
-        let mut rng = rand::rng();
-        let index = rng.random_range(0..chain_config.upstreams.len());
-        debug!("Randomly selected upstream {}", index);
-        Ok(&chain_config.upstreams[index])
+        Ok(upstreams[selected_index].clone())
     }
 }
