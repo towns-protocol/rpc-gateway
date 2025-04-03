@@ -1,10 +1,10 @@
 use actix_web::body::BoxBody;
 use actix_web::dev::{ServiceFactory, ServiceRequest, ServiceResponse};
-use actix_web::{post, web, App, Error, HttpServer, Result};
+use actix_web::{App, Error, HttpServer, Result, post, web};
 use alloy_json_rpc;
-use rpc_gateway::config::Config;
-use rpc_gateway::gateway::Gateway;
-use rpc_gateway::logging;
+use rpc_gateway_core::config::Config;
+use rpc_gateway_core::gateway::Gateway;
+use rpc_gateway_core::logging;
 use serde_json::Value;
 use tracing::{debug, error, info};
 use tracing_actix_web::{StreamSpan, TracingLogger};
@@ -44,8 +44,8 @@ async fn index(
 }
 
 // Create a function to configure and return the App
-fn create_app(
-    config: Config,
+async fn create_app(
+    gateway: Gateway,
 ) -> App<
     impl ServiceFactory<
         ServiceRequest,
@@ -55,7 +55,6 @@ fn create_app(
         InitError = (),
     >,
 > {
-    let gateway = Gateway::new(config.clone());
     App::new()
         .wrap(TracingLogger::default())
         .app_data(web::Data::new(gateway))
@@ -81,11 +80,19 @@ async fn main() -> std::io::Result<()> {
         "Starting server"
     );
 
-    HttpServer::new(move || create_app(config.clone()))
-        .bind((
-            server_config.server.host.as_str(),
-            server_config.server.port,
-        ))?
-        .run()
-        .await
+    let gateway = Gateway::new(config.clone());
+    gateway.readiness_probe().await;
+
+    HttpServer::new(move || {
+        App::new()
+            .wrap(TracingLogger::default())
+            .app_data(web::Data::new(gateway.clone()))
+            .service(index)
+    })
+    .bind((
+        server_config.server.host.as_str(),
+        server_config.server.port,
+    ))?
+    .run()
+    .await
 }

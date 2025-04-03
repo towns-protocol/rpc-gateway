@@ -1,5 +1,8 @@
 use crate::config::{ChainConfig, ErrorHandlingConfig, LoadBalancingConfig, UpstreamConfig};
-use alloy_json_rpc::{Request, Response};
+use alloy_chains::Chain;
+use alloy_json_rpc::{Id, Request, Response, ResponsePayload};
+use alloy_primitives::{ChainId, U64};
+use alloy_rpc_types::pubsub::Params;
 use rand::Rng;
 use reqwest::Client;
 use serde_json::Value;
@@ -12,15 +15,15 @@ use tracing::{debug, error, info, instrument, warn};
 struct Upstream {
     config: UpstreamConfig,
     current_weight: f64,
-    active_connections: u32,
+    chain: Chain,
 }
 
 impl Upstream {
-    fn new(config: UpstreamConfig) -> Self {
+    fn new(config: UpstreamConfig, chain: Chain) -> Self {
         Self {
             current_weight: config.weight as f64,
-            active_connections: 0,
             config,
+            chain,
         }
     }
 
@@ -31,9 +34,93 @@ impl Upstream {
     fn reset_weight(&mut self) {
         self.current_weight = self.config.weight as f64;
     }
+
+    // TODO: make this more efficient
+    #[instrument(skip(self, client))]
+    pub async fn readiness_probe(&self, client: &Client) -> bool {
+        debug!(
+            url = %self.config.url,
+            expected_chain_id = %self.chain.id(),
+            "Checking upstream readiness"
+        );
+
+        let request = Request::new("eth_chainId", Id::Number(1), Params::None);
+
+        let response = match client
+            .post(self.config.url.as_str())
+            .json(&request)
+            .send()
+            .await
+        {
+            Ok(response) => response,
+            Err(e) => {
+                warn!(
+                    url = %self.config.url,
+                    error = %e,
+                    "Failed to send request to upstream"
+                );
+                return false;
+            }
+        };
+
+        let rpc_response = match response.json::<Response<Value>>().await {
+            Ok(response) => response,
+            Err(e) => {
+                warn!(
+                    url = %self.config.url,
+                    error = %e,
+                    "Failed to parse response from upstream"
+                );
+                return false;
+            }
+        };
+
+        let payload = match rpc_response.payload {
+            ResponsePayload::Success(payload) => payload,
+            ResponsePayload::Failure(error) => {
+                warn!(
+                    url = %self.config.url,
+                    error = ?error,
+                    "Upstream returned error response"
+                );
+                return false;
+            }
+        };
+
+        let chain_id: U64 = match serde_json::from_value(payload) {
+            Ok(chain_id) => chain_id,
+            Err(e) => {
+                warn!(
+                    url = %self.config.url,
+                    error = %e,
+                    "Failed to parse chain ID from response"
+                );
+                return false;
+            }
+        };
+
+        let chain_id: ChainId = chain_id.to();
+
+        if chain_id == self.chain.id() {
+            info!(
+                url = %self.config.url,
+                chain_id = %chain_id,
+                "Upstream is ready"
+            );
+            return true;
+        } else {
+            warn!(
+                url = %self.config.url,
+                expected_chain_id = %self.chain.id(),
+                received_chain_id = %chain_id,
+                "Upstream returned incorrect chain ID"
+            );
+            return false;
+        }
+    }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct ChainRequestPool {
     chain_config: Arc<ChainConfig>,
     client: Client,
@@ -56,7 +143,7 @@ impl ChainRequestPool {
         let upstreams = chain_config
             .upstreams
             .iter()
-            .map(|config| Upstream::new(config.clone()))
+            .map(|config| Upstream::new(config.clone(), chain_config.chain))
             .collect();
 
         Self {
@@ -65,6 +152,33 @@ impl ChainRequestPool {
             upstreams: Arc::new(Mutex::new(upstreams)),
             error_handling: Arc::new(error_handling),
             load_balancing: Arc::new(load_balancing),
+        }
+    }
+
+    #[instrument(skip(self))]
+    pub async fn readiness_probe(&self) {
+        // TODO: this should exit the process if no upstreams are healthy
+        let mut upstreams = self.upstreams.lock().await;
+        let mut i = 0;
+
+        while i < upstreams.len() {
+            let upstream = &upstreams[i];
+            if !upstream.readiness_probe(&self.client).await {
+                warn!(
+                    url = %upstream.config.url,
+                    "Removing unhealthy upstream"
+                );
+                upstreams.remove(i);
+            } else {
+                i += 1;
+            }
+        }
+
+        if upstreams.is_empty() {
+            error!(
+                chain = ?self.chain_config.chain,
+                "No healthy upstreams remaining"
+            );
         }
     }
 

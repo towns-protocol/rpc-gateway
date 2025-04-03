@@ -8,7 +8,7 @@ use tracing::{debug, error, info, instrument, warn};
 use crate::cache::RpcCache;
 use crate::request_pool::ChainRequestPool;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct ChainHandler {
     chain_config: Arc<ChainConfig>,
     request_pool: ChainRequestPool,
@@ -51,6 +51,11 @@ impl ChainHandler {
             request_pool,
             cache,
         }
+    }
+
+    #[instrument(skip(self))]
+    pub async fn readiness_probe(&self) {
+        self.request_pool.readiness_probe().await;
     }
 
     #[instrument(skip(self, request))]

@@ -6,7 +6,7 @@ use tracing::{debug, error, info, instrument};
 
 use crate::chain_handler::ChainHandler;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Gateway {
     handlers: HashMap<u64, ChainHandler>,
 }
@@ -27,6 +27,13 @@ impl Gateway {
         }
 
         Self { handlers }
+    }
+
+    #[instrument(skip(self))]
+    pub async fn readiness_probe(&self) {
+        for (_, handler) in &self.handlers {
+            handler.readiness_probe().await;
+        }
     }
 
     #[instrument(skip(self, request), fields(chain_id = %chain_id))]

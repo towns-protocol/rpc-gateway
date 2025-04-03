@@ -1,6 +1,6 @@
 use alloy_chains::Chain;
-use moka::future::Cache;
 use moka::Expiry;
+use moka::future::Cache;
 use serde_json::Value;
 use std::{
     borrow::Cow,
@@ -57,7 +57,7 @@ impl Expiry<String, CacheEntry> for TtlExpiry {
 }
 
 /// A cache implementation with field-level TTL
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct RpcCache {
     /// The underlying cache implementation
     cache: Cache<String, CacheEntry>,
