@@ -1,22 +1,35 @@
 [workspace]
-members = ["rpc-gateway-config", "rpc-gateway-core"]
+members = ["rpc-gateway-core"]
 
-[package]
+[workspace.package]
 name = "rpc-gateway"
 version = "0.1.0"
-edition = "2021"
+edition = "2024"
+rust-version = "1.85"
+authors = ["Kerem Kazan <kerem.kazan@gmail.com>"]
+# TODO: set exclude
+exclude = []
+homepage = "https://github.com/whats-good/rpc-gateway"
+license = "MIT"
+repository = "https://github.com/whats-good/rpc-gateway"
 
-[dependencies]
+[workspace.lints.rust]
+# TODO: add lint extensions
+
+[workspace.dependencies]
 actix-web = "4.4"
 alloy-chains = "0.1"
 alloy-json-rpc = "0.13.0"
+alloy-sol-types = "1.0.0"
 moka = { version = "0.12.10", features = ["future"] }
 rand = "0.9.0"
 reqwest = { version = "0.12.15", features = ["json"] }
-rpc-gateway-config = { path = "./rpc-gateway-config" }
 rpc-gateway-core = { path = "./rpc-gateway-core" }
+# rpc-gateway-core = { path = "./rpc-gateway-core" }
+# rpc-gateway-json-rpc = { path = "./rpc-gateway-json-rpc" }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
+thiserror = { version = "2.0.12", features = ["std"] }
 tokio = { version = "1.0", features = ["full"] }
 toml = "0.8"
 tracing = "0.1"

@@ -1,7 +1,7 @@
+use crate::config::{ChainConfig, ErrorHandlingConfig, LoadBalancingConfig, UpstreamConfig};
 use alloy_json_rpc::{Request, Response};
 use rand::Rng;
 use reqwest::Client;
-use rpc_gateway_config::{ChainConfig, ErrorHandlingConfig, LoadBalancingConfig, UpstreamConfig};
 use serde_json::Value;
 use std::sync::Arc;
 use std::time::Duration;

@@ -1,7 +1,5 @@
+use crate::config::{CacheConfig, ChainConfig, Config, ErrorHandlingConfig, LoadBalancingConfig};
 use alloy_json_rpc::{Request, Response, ResponsePayload};
-use rpc_gateway_config::{
-    CacheConfig, ChainConfig, Config, ErrorHandlingConfig, LoadBalancingConfig,
-};
 use serde_json::Value;
 use std::borrow::Cow;
 use std::sync::Arc;

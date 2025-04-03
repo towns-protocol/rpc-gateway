@@ -1,4 +1,4 @@
-use rpc_gateway_config::Config;
+use crate::config::Config;
 use std::sync::Arc;
 use tracing_appender::rolling::{RollingFileAppender, Rotation};
 use tracing_subscriber::{

@@ -629,7 +629,7 @@ mod test_helpers {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_helpers::*;
+    use crate::config::test_helpers::*;
     use std::time::Duration;
 
     #[test]

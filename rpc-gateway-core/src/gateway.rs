@@ -1,5 +1,5 @@
+use crate::config::Config;
 use alloy_json_rpc::{Request, Response, ResponsePayload};
-use rpc_gateway_config::Config;
 use serde_json::Value;
 use std::collections::HashMap;
 use tracing::{debug, error, info, instrument};

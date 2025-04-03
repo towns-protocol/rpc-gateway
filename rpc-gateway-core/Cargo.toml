@@ -1,4 +1,46 @@
 [package]
 name = "rpc-gateway-core"
-version = "0.1.0"
-edition = "2024"
+
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+homepage.workspace = true
+repository.workspace = true
+exclude.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+actix-web.workspace = true
+alloy-chains.workspace = true
+alloy-json-rpc.workspace = true
+alloy-sol-types.workspace = true
+moka.workspace = true
+rand.workspace = true
+reqwest.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+toml.workspace = true
+tracing.workspace = true
+tracing-actix-web.workspace = true
+tracing-appender.workspace = true
+tracing-subscriber.workspace = true
+url.workspace = true
+
+# Additional dependencies not in workspace
+alloy-network = "0.13.0"
+alloy-rpc-types = "0.13.0"
+alloy-rpc-types-eth = "0.13.0"
+alloy-primitives = { version = "1.0.0", features = ["std", "serde", "map"] }
+
+[[bin]]
+name = "rpc-gateway"
+path = "bin/main.rs"
+
+[lib]
+path = "src/lib.rs"
