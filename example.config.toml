@@ -26,7 +26,7 @@ include_file = true
 include_line_number = true
 
 [logging.file]
-enabled = true
+enabled = false
 level = "info"
 format = "json"
 path = "logs/rpc-gateway.log"
@@ -41,5 +41,5 @@ include_line_number = true
 block_time_ms = 12_000
 upstreams = [
   { url = "$ALCHEMY_URL", timeout = "10s", weight = 1 },
-  { url = "$INFURA_URL", timeout = "10s", weight = 2 },
+  # { url = "$INFURA_URL", timeout = "10s", weight = 2 },
 ]

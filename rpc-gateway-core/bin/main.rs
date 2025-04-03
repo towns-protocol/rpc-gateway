@@ -6,6 +6,7 @@ use rpc_gateway_core::config::Config;
 use rpc_gateway_core::gateway::Gateway;
 use rpc_gateway_core::logging;
 use serde_json::Value;
+use std::env;
 use tracing::{debug, error, info};
 use tracing_actix_web::{StreamSpan, TracingLogger};
 
@@ -63,9 +64,12 @@ async fn create_app(
 
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
+    // Get config file path from command line arguments
+    let args: Vec<String> = env::args().collect();
+    let config_path = args.get(1).expect("Usage: rpc-gateway <config_file>");
+
     // Load configuration from file
-    let config =
-        Config::from_toml_file("example.config.toml").expect("Failed to load configuration");
+    let config = Config::from_toml_file(config_path).expect("Failed to load configuration");
     info!(config = ?config, "Loaded configuration");
 
     // Initialize logging with the configuration
