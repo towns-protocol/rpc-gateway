@@ -167,6 +167,8 @@ pub struct FileLogConfig {
 pub struct CacheConfig {
     #[serde(default = "default_cache_enabled")]
     pub enabled: bool,
+    #[serde(default = "default_cache_capacity")]
+    pub capacity: u64,
 }
 
 // Default functions for new fields
@@ -306,6 +308,10 @@ fn default_cache_enabled() -> bool {
     false
 }
 
+fn default_cache_capacity() -> u64 {
+    10_000 // Default cache capacity of 10,000 entries
+}
+
 impl Config {
     pub fn from_toml_str(s: &str) -> Result<Self, toml::de::Error> {
         let config: Config = toml::from_str(s)?;
@@ -434,6 +440,7 @@ impl Default for CacheConfig {
     fn default() -> Self {
         Self {
             enabled: default_cache_enabled(),
+            capacity: default_cache_capacity(),
         }
     }
 }
@@ -1111,6 +1118,7 @@ mod tests {
     fn test_cache_config_default() {
         let config = Config::default();
         assert!(!config.cache.enabled);
+        assert_eq!(config.cache.capacity, 10_000);
     }
 
     #[test]
@@ -1118,10 +1126,12 @@ mod tests {
         let config_str = r#"
             [cache]
             enabled = true
+            capacity = 5000
         "#;
 
         let config = Config::from_toml_str(config_str).unwrap();
         assert!(config.cache.enabled);
+        assert_eq!(config.cache.capacity, 5000);
     }
 
     #[test]
@@ -1133,6 +1143,7 @@ mod tests {
 
         let config = Config::from_toml_str(config_str).unwrap();
         assert!(!config.cache.enabled);
+        assert_eq!(config.cache.capacity, 10_000);
     }
 
     #[test]

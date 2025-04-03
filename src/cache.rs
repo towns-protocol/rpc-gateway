@@ -61,18 +61,18 @@ impl Expiry<String, CacheEntry> for TtlExpiry {
 pub struct RpcCache {
     /// The underlying cache implementation
     cache: Cache<String, CacheEntry>,
-    /// The chain this cache is for
-    chain: Chain,
+    /// The block time for this chain
+    block_time: Duration,
 }
 
 impl RpcCache {
-    /// Creates a new cache with the given maximum capacity and chain
-    pub fn new(max_capacity: u64, chain: Chain) -> Self {
+    /// Creates a new cache with the given maximum capacity and block time
+    pub fn new(max_capacity: u64, block_time: Duration) -> Self {
         let cache = Cache::builder()
             .max_capacity(max_capacity)
             .expire_after(TtlExpiry)
             .build();
-        Self { cache, chain }
+        Self { cache, block_time }
     }
 
     fn hash_key(method: &Cow<'static, str>, params: &Value) -> String {
@@ -139,7 +139,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_cache_ttl() {
-        let cache = RpcCache::new(100, Chain::from_id(1));
+        let block_time = Duration::from_secs(12);
+        let cache = RpcCache::new(100, block_time);
         let method = Cow::Borrowed("eth_getBalance");
         let params = Value::Array(vec![
             Value::String("0x123".to_string()),
@@ -165,7 +166,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_cache_different_methods() {
-        let cache = RpcCache::new(100, Chain::from_id(1));
+        let block_time = Duration::from_secs(12);
+        let cache = RpcCache::new(100, block_time);
         let ttl = Duration::from_secs(60);
 
         // Insert values for different methods
@@ -191,7 +193,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_cache_different_params() {
-        let cache = RpcCache::new(100, Chain::from_id(1));
+        let block_time = Duration::from_secs(12);
+        let cache = RpcCache::new(100, block_time);
         let method = Cow::Borrowed("eth_getBalance");
         let ttl = Duration::from_secs(60);
 
@@ -222,7 +225,8 @@ mod tests {
 
     #[test]
     fn test_ttl_values() {
-        let cache = RpcCache::new(100, Chain::from_id(1));
+        let block_time = Duration::from_secs(12);
+        let cache = RpcCache::new(100, block_time);
 
         assert_eq!(
             cache.get_ttl("eth_blockNumber"),

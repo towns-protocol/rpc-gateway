@@ -21,7 +21,6 @@ impl Gateway {
                 chain_config,
                 config.error_handling.clone(),
                 config.load_balancing.clone(),
-                1000, // Default cache capacity
                 config.cache.clone(),
             );
             handlers.insert(chain_id, handler);

@@ -22,12 +22,11 @@ impl ChainHandler {
         chain_config: ChainConfig,
         error_handling: ErrorHandlingConfig,
         load_balancing: LoadBalancingConfig,
-        cache_capacity: u64,
         cache_config: CacheConfig,
     ) -> Self {
         info!(
             chain = ?chain_config.chain,
-            cache_capacity = %cache_capacity,
+            cache_capacity = %cache_config.capacity,
             cache_enabled = %cache_config.enabled,
             "Creating new ChainHandler"
         );
@@ -36,7 +35,15 @@ impl ChainHandler {
             ChainRequestPool::new(chain_config.clone(), error_handling, load_balancing);
 
         let cache = if cache_config.enabled {
-            Some(RpcCache::new(cache_capacity, chain_config.chain))
+            if let Some(block_time) = chain_config.get_block_time() {
+                Some(RpcCache::new(cache_config.capacity, block_time))
+            } else {
+                warn!(
+                    chain = ?chain_config.chain,
+                    "Cache enabled but no block time available. Disabling cache."
+                );
+                None
+            }
         } else {
             None
         };
