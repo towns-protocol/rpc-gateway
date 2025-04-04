@@ -117,18 +117,20 @@ impl RpcCache {
 
     /// Returns the TTL for a given method if it's cacheable
     pub fn get_ttl(&self, method: &str) -> Option<Duration> {
-        match method {
-            "eth_blockNumber" => Some(Duration::from_secs(1)),
-            "eth_getBalance" => Some(Duration::from_secs(10)),
-            "eth_getTransactionCount" => Some(Duration::from_secs(10)),
-            "eth_getCode" => Some(Duration::from_secs(300)), // 5 minutes
-            "eth_call" => Some(Duration::from_secs(1)),
-            "eth_estimateGas" => Some(Duration::from_secs(1)),
-            "eth_gasPrice" => Some(Duration::from_secs(10)),
-            "eth_maxPriorityFeePerGas" => Some(Duration::from_secs(10)),
-            "eth_feeHistory" => Some(Duration::from_secs(10)),
-            _ => None,
-        }
+        // match method {
+        //     "eth_blockNumber" => Some(Duration::from_secs(1)),
+        //     "eth_getBalance" => Some(Duration::from_secs(10)),
+        //     "eth_getTransactionCount" => Some(Duration::from_secs(10)),
+        //     "eth_getCode" => Some(Duration::from_secs(300)), // 5 minutes
+        //     "eth_call" => Some(Duration::from_secs(1)),
+        //     "eth_estimateGas" => Some(Duration::from_secs(1)),
+        //     "eth_gasPrice" => Some(Duration::from_secs(10)),
+        //     "eth_maxPriorityFeePerGas" => Some(Duration::from_secs(10)),
+        //     "eth_feeHistory" => Some(Duration::from_secs(10)),
+        //     _ => None,
+        // }
+        // TODO: implement
+        None
     }
 }
 

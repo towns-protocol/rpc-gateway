@@ -322,6 +322,11 @@ impl ChainRequestPool {
             }
         }
 
+        if selected_index >= upstreams.len() {
+            error!("No upstreams available");
+            return Err("No upstreams available".into());
+        }
+
         debug!(
             selected_index = %selected_index,
             max_weight = %max_weight,
