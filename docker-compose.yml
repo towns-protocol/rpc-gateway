@@ -1,0 +1,123 @@
+# Docker Compose configuration for local development
+
+services:
+  gateway:
+    build: .
+    ports:
+      - "9090:9090"
+    environment:
+      - ALCHEMY_URL=http://anvil1:8545
+      - INFURA_URL=http://anvil2:8545
+    volumes:
+      - ./docker.config.toml:/app/config.toml
+    depends_on:
+      - mainnet
+      - polygon
+      - arbitrum
+  # Ethereum Mainnet (Chain ID 1) node
+  mainnet:
+    image: ghcr.io/foundry-rs/foundry:latest
+    container_name: anvil-mainnet
+    ports:
+      - "8545:8545"
+    entrypoint:
+      [
+        "anvil",
+        "--chain-id",
+        "1",
+        "--block-time",
+        "5",
+        "--host",
+        "0.0.0.0",
+        "--port",
+        "8545",
+      ]
+    healthcheck:
+      # send eth_getBlockNumber
+      test:
+        [
+          "CMD",
+          "curl",
+          "-X",
+          "POST",
+          "-H",
+          "Content-Type: application/json",
+          "--data",
+          '{"jsonrpc":"2.0","method":"eth_getBlockNumber","params":[],"id":1}',
+          "http://localhost:8545",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 2
+
+  # Polygon (Chain ID 137) node
+  polygon:
+    image: ghcr.io/foundry-rs/foundry:latest
+    container_name: anvil-polygon
+    ports:
+      - "8546:8545"
+    entrypoint:
+      [
+        "anvil",
+        "--chain-id",
+        "137",
+        "--block-time",
+        "2",
+        "--host",
+        "0.0.0.0",
+        "--port",
+        "8545",
+      ]
+    healthcheck:
+      # send eth_getBlockNumber
+      test:
+        [
+          "CMD",
+          "curl",
+          "-X",
+          "POST",
+          "-H",
+          "Content-Type: application/json",
+          "--data",
+          '{"jsonrpc":"2.0","method":"eth_getBlockNumber","params":[],"id":1}',
+          "http://localhost:8545",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 2
+
+  # Arbitrum (Chain ID 42161) node
+  arbitrum:
+    image: ghcr.io/foundry-rs/foundry:latest
+    container_name: anvil-arbitrum
+    ports:
+      - "8547:8545"
+    entrypoint:
+      [
+        "anvil",
+        "--chain-id",
+        "42161",
+        "--block-time",
+        "2",
+        "--host",
+        "0.0.0.0",
+        "--port",
+        "8545",
+      ]
+    healthcheck:
+      # send eth_getBlockNumber
+      test:
+        [
+          "CMD",
+          "curl",
+          "-X",
+          "POST",
+          "-H",
+          "Content-Type: application/json",
+          "--data",
+          '{"jsonrpc":"2.0","method":"eth_getBlockNumber","params":[],"id":1}',
+          "http://localhost:8545",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 2

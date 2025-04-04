@@ -1,5 +1,5 @@
 # Build stage
-FROM rust:1.85-slim-bullseye as builder
+FROM rust:1.85-slim-bullseye AS builder
 
 # Install build dependencies
 RUN apt-get update && apt-get install -y \
@@ -10,8 +10,9 @@ RUN apt-get update && apt-get install -y \
 # Set working directory
 WORKDIR /usr/src/rpc-gateway
 
-# Copy the source code
-COPY . .
+# Copy only the necessary files for building
+COPY Cargo.toml Cargo.lock ./
+COPY crates ./crates
 
 # Build the application
 RUN cargo build --release
@@ -25,14 +26,29 @@ RUN apt-get update && apt-get install -y \
   ca-certificates \
   && rm -rf /var/lib/apt/lists/*
 
-# Copy the binary from the builder stage
-COPY --from=builder /usr/src/rpc-gateway/target/release/rpc-gateway /usr/local/bin/rpc-gateway
+# Create non-root user
+# TODO: uncomment this when we have a non-root user
+# RUN useradd -m -u 1000 rpc-gateway
 
 # Set the working directory
 WORKDIR /app
 
+# Copy the binary from the builder stage
+COPY --from=builder /usr/src/rpc-gateway/target/release/rpc-gateway /usr/local/bin/rpc-gateway
+
 # Copy the example config
 COPY docker.config.toml /app/config.toml
 
-# Run the application with config file path
-CMD ["rpc-gateway", "-c", "/app/config.toml", "--debug"] 
+# TODO: uncomment this when we have a non-root user
+# # Set proper permissions
+# RUN chown -R rpc-gateway:rpc-gateway /app
+
+# TODO: uncomment this when we have a non-root user
+# # Switch to non-root user
+# USER rpc-gateway
+
+# Expose the port the app runs on
+EXPOSE 8080
+
+# Set the entrypoint
+ENTRYPOINT ["/usr/local/bin/rpc-gateway", "-c", "/app/config.toml"] 

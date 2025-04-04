@@ -44,79 +44,115 @@ impl Upstream {
             "Checking upstream readiness"
         );
 
-        let request = Request::new("eth_chainId", Id::Number(1), Params::None);
-
-        let response = match client
-            .post(self.config.url.as_str())
-            .json(&request)
-            .send()
-            .await
-        {
-            Ok(response) => response,
-            Err(e) => {
-                warn!(
-                    url = %self.config.url,
-                    error = %e,
-                    "Failed to send request to upstream"
-                );
-                return false;
-            }
-        };
-
-        let rpc_response = match response.json::<Response<Value>>().await {
-            Ok(response) => response,
-            Err(e) => {
-                warn!(
-                    url = %self.config.url,
-                    error = %e,
-                    "Failed to parse response from upstream"
-                );
-                return false;
-            }
-        };
-
-        let payload = match rpc_response.payload {
-            ResponsePayload::Success(payload) => payload,
-            ResponsePayload::Failure(error) => {
-                warn!(
-                    url = %self.config.url,
-                    error = ?error,
-                    "Upstream returned error response"
-                );
-                return false;
-            }
-        };
-
-        let chain_id: U64 = match serde_json::from_value(payload) {
-            Ok(chain_id) => chain_id,
-            Err(e) => {
-                warn!(
-                    url = %self.config.url,
-                    error = %e,
-                    "Failed to parse chain ID from response"
-                );
-                return false;
-            }
-        };
-
-        let chain_id: ChainId = chain_id.to();
-
-        if chain_id == self.chain.id() {
-            info!(
+        for attempt in 0..3 {
+            debug!(
                 url = %self.config.url,
-                chain_id = %chain_id,
-                "Upstream is ready"
+                attempt = attempt + 1,
+                "Attempting readiness check"
             );
-            return true;
-        } else {
-            warn!(
-                url = %self.config.url,
-                expected_chain_id = %self.chain.id(),
-                received_chain_id = %chain_id,
-                "Upstream returned incorrect chain ID"
-            );
-            return false;
+
+            let request = Request::new("eth_chainId", Id::Number(1), Params::None);
+
+            let response = match client
+                .post(self.config.url.as_str())
+                .json(&request)
+                .send()
+                .await
+            {
+                Ok(response) => response,
+                Err(e) => {
+                    warn!(
+                        url = %self.config.url,
+                        attempt = attempt + 1,
+                        error = %e,
+                        "Failed to send request to upstream"
+                    );
+                    if attempt < 2 {
+                        tokio::time::sleep(Duration::from_secs(1)).await;
+                        continue;
+                    }
+                    return false;
+                }
+            };
+
+            let rpc_response = match response.json::<Response<Value>>().await {
+                Ok(response) => response,
+                Err(e) => {
+                    warn!(
+                        url = %self.config.url,
+                        attempt = attempt + 1,
+                        error = %e,
+                        "Failed to parse response from upstream"
+                    );
+                    if attempt < 2 {
+                        tokio::time::sleep(Duration::from_secs(1)).await;
+                        continue;
+                    }
+                    return false;
+                }
+            };
+
+            let payload = match rpc_response.payload {
+                ResponsePayload::Success(payload) => payload,
+                ResponsePayload::Failure(error) => {
+                    warn!(
+                        url = %self.config.url,
+                        attempt = attempt + 1,
+                        error = ?error,
+                        "Upstream returned error response"
+                    );
+                    if attempt < 2 {
+                        tokio::time::sleep(Duration::from_secs(1)).await;
+                        continue;
+                    }
+                    return false;
+                }
+            };
+
+            let chain_id: U64 = match serde_json::from_value(payload) {
+                Ok(chain_id) => chain_id,
+                Err(e) => {
+                    warn!(
+                        url = %self.config.url,
+                        attempt = attempt + 1,
+                        error = %e,
+                        "Failed to parse chain ID from response"
+                    );
+                    if attempt < 2 {
+                        tokio::time::sleep(Duration::from_secs(1)).await;
+                        continue;
+                    }
+                    return false;
+                }
+            };
+
+            let chain_id: ChainId = chain_id.to();
+
+            if chain_id == self.chain.id() {
+                info!(
+                    url = %self.config.url,
+                    chain_id = %chain_id,
+                    attempt = attempt + 1,
+                    "Upstream is ready"
+                );
+                return true;
+            } else {
+                warn!(
+                    url = %self.config.url,
+                    attempt = attempt + 1,
+                    expected_chain_id = %self.chain.id(),
+                    received_chain_id = %chain_id,
+                    "Upstream returned incorrect chain ID"
+                );
+                if attempt < 2 {
+                    tokio::time::sleep(Duration::from_secs(1)).await;
+                    continue;
+                }
+                return false;
+            }
         }
+
+        false
     }
 }
 
