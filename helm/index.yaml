@@ -9,6 +9,6 @@ entries:
       name: rpc-gateway
       type: application
       urls:
-        - https://github.com/whats-good/rpc-gateway/helm/rpc-gateway-0.1.0.tgz
+        - https://whats-good.github.io/rpc-gateway/helm/rpc-gateway-0.1.0.tgz
       version: 0.1.0
 generated: "2025-04-04T12:11:25.704554-04:00"
