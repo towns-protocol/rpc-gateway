@@ -1,6 +1,7 @@
 use alloy_chains::Chain;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::path::PathBuf;
 use std::time::Duration;
 use url::Url;
 
@@ -358,6 +359,11 @@ impl Config {
     }
 
     pub fn from_toml_file(path: &str) -> Result<Self, Box<dyn std::error::Error>> {
+        let contents = std::fs::read_to_string(path)?;
+        Ok(Self::from_toml_str(&contents)?)
+    }
+
+    pub fn from_path_buf(path: &PathBuf) -> Result<Self, Box<dyn std::error::Error>> {
         let contents = std::fs::read_to_string(path)?;
         Ok(Self::from_toml_str(&contents)?)
     }

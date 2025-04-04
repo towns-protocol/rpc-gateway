@@ -2,13 +2,13 @@ use actix_web::body::BoxBody;
 use actix_web::dev::{ServiceFactory, ServiceRequest, ServiceResponse};
 use actix_web::{App, Error, HttpServer, Result, post, web};
 use alloy_json_rpc;
-use rpc_gateway_core::config::Config;
-use rpc_gateway_core::gateway::Gateway;
-use rpc_gateway_core::logging;
 use serde_json::Value;
-use std::env;
 use tracing::{debug, error, info};
 use tracing_actix_web::{StreamSpan, TracingLogger};
+
+use crate::config::Config;
+use crate::gateway::Gateway;
+use crate::logging;
 
 // TODO: add better error handling.
 #[post("/{chain_id}")]
@@ -62,25 +62,12 @@ async fn create_app(
         .service(index)
 }
 
-#[actix_web::main]
-async fn main() -> std::io::Result<()> {
-    // Get config file path from command line arguments
-    let args: Vec<String> = env::args().collect();
-    let config_path = args.get(1).expect("Usage: rpc-gateway <config_file>");
-
-    // Load configuration from file
-    let config = Config::from_toml_file(config_path).expect("Failed to load configuration");
-    info!(config = ?config, "Loaded configuration");
-
-    // Initialize logging with the configuration
+pub async fn run(config: Config) -> std::io::Result<()> {
     logging::init_logging(&config);
 
-    let server_config = config.clone();
-
-    // Use the function in the HttpServer with the loaded config
     info!(
-        host = %server_config.server.host,
-        port = %server_config.server.port,
+        host = %config.server.host,
+        port = %config.server.port,
         "Starting server"
     );
 
@@ -93,10 +80,7 @@ async fn main() -> std::io::Result<()> {
             .app_data(web::Data::new(gateway.clone()))
             .service(index)
     })
-    .bind((
-        server_config.server.host.as_str(),
-        server_config.server.port,
-    ))?
+    .bind((config.server.host.as_str(), config.server.port))?
     .run()
     .await
 }

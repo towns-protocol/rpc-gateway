@@ -37,10 +37,11 @@ alloy-network = "0.13.0"
 alloy-rpc-types = "0.13.0"
 alloy-rpc-types-eth = "0.13.0"
 alloy-primitives = { version = "1.0.0", features = ["std", "serde", "map"] }
+clap.workspace = true
 
 [[bin]]
 name = "rpc-gateway"
-path = "bin/main.rs"
+path = "src/bin/main.rs"
 
 [lib]
 path = "src/lib.rs"
