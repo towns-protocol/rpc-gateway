@@ -27,8 +27,7 @@ RUN apt-get update && apt-get install -y \
   && rm -rf /var/lib/apt/lists/*
 
 # Create non-root user
-# TODO: uncomment this when we have a non-root user
-# RUN useradd -m -u 1000 rpc-gateway
+RUN useradd -m -u 1000 rpc-gateway
 
 # Set the working directory
 WORKDIR /app
@@ -39,13 +38,11 @@ COPY --from=builder /usr/src/rpc-gateway/target/release/rpc-gateway /usr/local/b
 # Copy the example config
 COPY docker.config.toml /app/config.toml
 
-# TODO: uncomment this when we have a non-root user
-# # Set proper permissions
-# RUN chown -R rpc-gateway:rpc-gateway /app
+# Set proper permissions
+RUN chown -R rpc-gateway:rpc-gateway /app
 
-# TODO: uncomment this when we have a non-root user
-# # Switch to non-root user
-# USER rpc-gateway
+# Switch to non-root user
+USER rpc-gateway
 
 # Expose the port the app runs on
 EXPOSE 8080
