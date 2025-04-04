@@ -32,10 +32,7 @@ COPY --from=builder /usr/src/rpc-gateway/target/release/rpc-gateway /usr/local/b
 WORKDIR /app
 
 # Copy the example config
-COPY example.config.toml /app/config.toml
-
-# Expose the port (adjust if your application uses a different port)
-EXPOSE 8080
+COPY docker.config.toml /app/config.toml
 
 # Run the application with config file path
-CMD ["rpc-gateway", "/app/config.toml"] 
+CMD ["rpc-gateway", "-c", "/app/config.toml", "--debug"] 

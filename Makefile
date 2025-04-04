@@ -24,7 +24,7 @@ dev:
 	@echo "----------------------------------------"
 	@echo "Starting server..."
 	@mkdir -p logs
-	@cd rpc-gateway-core && watchexec -e rs -r cargo run -- $(PWD)/example.config.toml
+	@cd rpc-gateway-core && watchexec -e rs -r cargo run -- -c $(PWD)/example.config.toml
 
 test:
 	@echo "Running tests..."
@@ -39,10 +39,6 @@ lint:
 docker-build:
 	@echo "Building Docker image..."
 	docker build -t $(IMAGE_NAME) .
-
-docker-run:
-	@echo "Running Docker container..."
-	docker run -p 9090:9090 -v $(PWD)/example.config.toml:/app/config.toml $(IMAGE_NAME) /usr/local/bin/rpc-gateway /app/config.toml
 
 docker-clean:
 	@echo "Cleaning up Docker resources..."
