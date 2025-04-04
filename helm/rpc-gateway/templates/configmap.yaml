@@ -1,0 +1,49 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "rpc-gateway.fullname" . }}-config
+  labels:
+    {{- include "rpc-gateway.labels" . | nindent 4 }}
+data:
+  config.toml: |
+    [server]
+    host = "{{ .Values.config.server.host | default "0.0.0.0" }}"
+    port = {{ .Values.config.server.port | default 9090 }}
+
+    [load_balancing]
+    type = "{{ .Values.config.loadBalancing.type | default "weighted_round_robin" }}"
+    weight_decay = {{ .Values.config.loadBalancing.weightDecay | default 0.5 }}
+
+    [error_handling]
+    type = "{{ .Values.config.errorHandling.type | default "retry" }}"
+    max_retries = {{ .Values.config.errorHandling.maxRetries | default 3 }}
+    retry_delay = "{{ .Values.config.errorHandling.retryDelay | default "1s" }}"
+    jitter = {{ .Values.config.errorHandling.jitter | default true }}
+
+    [cache]
+    enabled = {{ .Values.config.cache.enabled | default false }}
+
+    [logging.console]
+    enabled = {{ .Values.config.logging.console.enabled | default true }}
+    level = "{{ .Values.config.logging.console.level | default "info" }}"
+    format = "{{ .Values.config.logging.console.format | default "json" }}"
+    include_target = {{ .Values.config.logging.console.includeTarget | default true }}
+    include_thread_ids = {{ .Values.config.logging.console.includeThreadIds | default true }}
+    include_thread_names = {{ .Values.config.logging.console.includeThreadNames | default false }}
+    include_file = {{ .Values.config.logging.console.includeFile | default false }}
+    include_line_number = {{ .Values.config.logging.console.includeLineNumber | default false }}
+
+    [logging.file]
+    enabled = {{ .Values.config.logging.file.enabled | default false }}
+
+    {{- range $chainId, $chain := .Values.config.chains }}
+    [chains.{{ $chainId }}]
+    {{- if $chain.blockTimeMs }}
+    block_time_ms = {{ $chain.blockTimeMs }}
+    {{- end }}
+    upstreams = [
+    {{- range $upstream := $chain.upstreams }}
+      { url = "{{ $upstream.url }}", timeout = "{{ $upstream.timeout | default "10s" }}", weight = {{ $upstream.weight | default 1 }} },
+    {{- end }}
+    ]
+    {{- end }} 

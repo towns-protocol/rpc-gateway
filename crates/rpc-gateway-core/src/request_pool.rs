@@ -297,6 +297,7 @@ impl ChainRequestPool {
         Err(last_error.unwrap_or_else(|| "Unknown error".into()))
     }
 
+    // TODO: verify weight decay behavior
     #[instrument(skip(self, request))]
     async fn forward_once(
         &self,
