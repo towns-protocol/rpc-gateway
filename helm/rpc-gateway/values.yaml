@@ -153,3 +153,9 @@ config:
     #     - url: "http://mainnet:8545"
     #       timeout: "10s"
     #       weight: 1
+
+# Environment variables to be set in the container
+env:
+  # TODO: turn this into a regular config.rs field, instead of an env var
+  - name: RUST_LOG
+    value: "rpc_gateway=info,actix_web=info,reqwest=info"
