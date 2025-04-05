@@ -7,17 +7,20 @@ set -e
 IMAGE_NAME="whatsgood/rpc-gateway"
 VERSION=$(git describe --tags --always --dirty)
 
-# Build the image
-make docker-build
+# Check if buildx is available and set up if needed
+if ! docker buildx inspect multiplatform >/dev/null 2>&1; then
+  echo "Setting up Docker Buildx for multi-platform builds..."
+  docker buildx create --name multiplatform --driver docker-container --use
+fi
 
-# Tag the image for the registry
-echo "Tagging image..."
-docker tag ${IMAGE_NAME}:${VERSION} ${IMAGE_NAME}:latest
+# Use buildx to build and push multi-platform images
+echo "Building and pushing multi-platform images..."
+docker buildx build \
+  --platform linux/amd64,linux/arm64 \
+  --tag ${IMAGE_NAME}:${VERSION} \
+  --tag ${IMAGE_NAME}:latest \
+  --push \
+  .
 
-# Push the image
-echo "Pushing image to Docker Hub..."
-docker push ${IMAGE_NAME}:${VERSION}
-docker push ${IMAGE_NAME}:latest
-
-echo "Successfully published ${IMAGE_NAME}:${VERSION}"
-echo "Successfully published ${IMAGE_NAME}:latest" 
+echo "Successfully published ${IMAGE_NAME}:${VERSION} for multiple platforms"
+echo "Successfully published ${IMAGE_NAME}:latest for multiple platforms" 
