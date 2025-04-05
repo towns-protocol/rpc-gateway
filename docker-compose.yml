@@ -9,7 +9,7 @@ services:
       - ALCHEMY_URL=http://anvil1:8545
       - INFURA_URL=http://anvil2:8545
     volumes:
-      - ./docker.config.toml:/app/config.toml
+      - ./docker.config.yml:/etc/rpc-gateway/config.yml
     depends_on:
       - mainnet
       - polygon

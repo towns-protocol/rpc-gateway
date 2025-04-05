@@ -7,5 +7,5 @@ use std::path::PathBuf;
 pub struct Cli {
     /// Path to the configuration file
     #[arg(short = 'c', long = "config", value_name = "FILE")]
-    pub config: PathBuf,
+    pub config: String,
 }

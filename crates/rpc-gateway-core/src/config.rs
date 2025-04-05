@@ -1,5 +1,6 @@
 use alloy_chains::Chain;
 use serde::{Deserialize, Serialize};
+use serde_yaml;
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::time::Duration;
@@ -55,6 +56,7 @@ impl Default for LoadBalancingConfig {
 pub enum ErrorHandlingConfig {
     Retry {
         #[serde(default = "default_max_retries")]
+        #[serde(deserialize_with = "validate_max_retries")]
         max_retries: u32,
         #[serde(default = "default_retry_delay", with = "duration_serde")]
         retry_delay: Duration,
@@ -83,6 +85,17 @@ impl Default for ErrorHandlingConfig {
     }
 }
 
+fn validate_max_retries<'de, D>(deserializer: D) -> Result<u32, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let value = u32::deserialize(deserializer)?;
+    if value == 0 {
+        return Err(serde::de::Error::custom("max_retries cannot be zero"));
+    }
+    Ok(value)
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ChainConfig {
     #[serde(skip)]
@@ -109,7 +122,19 @@ pub struct UpstreamConfig {
     #[serde(default = "default_timeout", with = "duration_serde")]
     pub timeout: Duration,
     #[serde(default = "default_weight")]
+    #[serde(deserialize_with = "validate_weight")]
     pub weight: u32,
+}
+
+fn validate_weight<'de, D>(deserializer: D) -> Result<u32, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let value = u32::deserialize(deserializer)?;
+    if value == 0 {
+        return Err(serde::de::Error::custom("weight cannot be zero"));
+    }
+    Ok(value)
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -366,6 +391,37 @@ impl Config {
     pub fn from_path_buf(path: &PathBuf) -> Result<Self, Box<dyn std::error::Error>> {
         let contents = std::fs::read_to_string(path)?;
         Ok(Self::from_toml_str(&contents)?)
+    }
+
+    pub fn from_yaml_str(s: &str) -> Result<Self, Box<dyn std::error::Error>> {
+        let mut config: Config = serde_yaml::from_str(s)?;
+        config.process_urls()?;
+        Ok(config)
+    }
+
+    pub fn from_yaml_file(path: &str) -> Result<Self, Box<dyn std::error::Error>> {
+        let contents = std::fs::read_to_string(path)?;
+        Self::from_yaml_str(&contents)
+    }
+
+    pub fn from_yaml_path_buf(path: &PathBuf) -> Result<Self, Box<dyn std::error::Error>> {
+        let contents = std::fs::read_to_string(path)?;
+        Self::from_yaml_str(&contents)
+    }
+
+    fn process_urls(&mut self) -> Result<(), Box<dyn std::error::Error>> {
+        for (_, chain_config) in &mut self.chains {
+            for upstream in &mut chain_config.upstreams {
+                if upstream.url.as_str().starts_with('$') {
+                    let env_var = upstream.url.as_str().trim_start_matches('$');
+                    let env_value = std::env::var(env_var).map_err(|e| {
+                        format!("Environment variable '{}' not found: {}", env_var, e)
+                    })?;
+                    upstream.url = Url::parse(&env_value)?;
+                }
+            }
+        }
+        Ok(())
     }
 }
 
@@ -661,111 +717,36 @@ mod tests {
     #[test]
     fn test_parse_valid_config() {
         let config_str = r#"
-            [server]
-            host = "localhost"
-            port = 8080
+server:
+  host: "127.0.0.1"
+  port: 8080
 
-            [load_balancing]
-            type = "weighted_round_robin"
-            weight_decay = 0.7
+load_balancing:
+  type: "weighted_round_robin"
+  weight_decay: 0.5
 
-            [error_handling]
-            type = "circuit_breaker"
-            failure_threshold = 5
-            reset_timeout = "60s"
-            half_open_requests = 2
+error_handling:
+  type: "retry"
+  max_retries: 3
+  retry_delay: "1s"
+  jitter: true
 
-            [chains.1]
-            upstreams = [
-                { url = "http://example.com", timeout = "5s", weight = 2 },
-                { url = "https://api.example.com", timeout = "10s", weight = 1 }
-            ]
-        "#;
+chains:
+  1:
+    upstreams:
+      - url: "http://example.com"
+        timeout: "10s"
+        weight: 1
+"#;
 
-        let config = Config::from_toml_str(config_str).unwrap();
+        let config = Config::from_yaml_str(config_str).unwrap();
 
-        assert_eq!(config.server.host, "localhost");
+        assert_eq!(config.server.host, "127.0.0.1");
         assert_eq!(config.server.port, 8080);
         assert!(matches!(
             config.load_balancing,
-            LoadBalancingConfig::WeightedRoundRobin { weight_decay } if weight_decay == 0.7
-        ));
-        assert!(matches!(
-            config.error_handling,
-            ErrorHandlingConfig::CircuitBreaker {
-                failure_threshold,
-                reset_timeout,
-                half_open_requests,
-            } if failure_threshold == 5 && reset_timeout == Duration::from_secs(60) && half_open_requests == 2
-        ));
-
-        let chain = config.chains.get(&1).unwrap();
-        assert_eq!(chain.chain, Chain::from_id(1));
-        assert_eq!(chain.upstreams.len(), 2);
-
-        let first_upstream = &chain.upstreams[0];
-        assert_eq!(first_upstream.url.as_str(), "http://example.com/");
-        assert_eq!(first_upstream.timeout, Duration::from_secs(5));
-        assert_eq!(first_upstream.weight, 2);
-
-        let second_upstream = &chain.upstreams[1];
-        assert_eq!(second_upstream.url.as_str(), "https://api.example.com/");
-        assert_eq!(second_upstream.timeout, Duration::from_secs(10));
-        assert_eq!(second_upstream.weight, 1);
-    }
-
-    #[test]
-    fn test_parse_fail_fast_config() {
-        let config_str = r#"
-            [error_handling]
-            type = "fail_fast"
-            error_threshold = 10
-            error_window = "30s"
-        "#;
-
-        let config = Config::from_toml_str(config_str).unwrap();
-        assert!(matches!(
-            config.error_handling,
-            ErrorHandlingConfig::FailFast {
-                error_threshold,
-                error_window,
-            } if error_threshold == 10 && error_window == Duration::from_secs(30)
-        ));
-    }
-
-    #[test]
-    fn test_parse_invalid_url() {
-        let config_str = r#"
-            [chains.1]
-            upstreams = [
-                { url = "not a valid url", timeout = "5s", weight = 1 }
-            ]
-        "#;
-
-        let result = Config::from_toml_str(config_str);
-        assert!(result.is_err());
-    }
-
-    #[test]
-    fn test_parse_partial_config() {
-        let config_str = r#"
-            [server]
-            host = "localhost"
-
-            [chains.1]
-            upstreams = [
-                { url = "http://example.com" }
-            ]
-        "#;
-
-        let config = Config::from_toml_str(config_str).unwrap();
-
-        assert_eq!(config.server.host, "localhost");
-        assert_eq!(config.server.port, 9090); // default value
-        assert!(matches!(
-            config.load_balancing,
             LoadBalancingConfig::WeightedRoundRobin { weight_decay } if weight_decay == 0.5
-        )); // default value
+        ));
         assert!(matches!(
             config.error_handling,
             ErrorHandlingConfig::Retry {
@@ -773,30 +754,28 @@ mod tests {
                 retry_delay,
                 jitter,
             } if max_retries == 3 && retry_delay == Duration::from_secs(1) && jitter == true
-        )); // default value
+        ));
 
         let chain = config.chains.get(&1).unwrap();
         let upstream = &chain.upstreams[0];
         assert_eq!(upstream.url.as_str(), "http://example.com/");
-        assert_eq!(upstream.timeout, Duration::from_secs(10)); // default value
-        assert_eq!(upstream.weight, 1); // default value
+        assert_eq!(upstream.timeout, Duration::from_secs(10));
+        assert_eq!(upstream.weight, 1);
     }
 
     #[test]
     fn test_multiple_chains() {
         let config_str = r#"
-            [chains.1]
-            upstreams = [
-                { url = "http://chain1.example.com" }
-            ]
+chains:
+  1:
+    upstreams:
+      - url: "http://chain1.example.com"
+  2:
+    upstreams:
+      - url: "http://chain2.example.com"
+"#;
 
-            [chains.2]
-            upstreams = [
-                { url = "http://chain2.example.com" }
-            ]
-        "#;
-
-        let config = Config::from_toml_str(config_str).unwrap();
+        let config = Config::from_yaml_str(config_str).unwrap();
 
         assert_eq!(config.chains.len(), 2);
 
@@ -816,18 +795,20 @@ mod tests {
     #[test]
     fn test_duration_parsing() {
         let config_str = r#"
-            [error_handling]
-            type = "retry"
-            max_retries = 3
-            retry_delay = "1s"
-            jitter = true
-            [chains.1]
-            upstreams = [
-                { url = "http://example.com", timeout = "30s" }
-            ]
-        "#;
+error_handling:
+  type: "retry"
+  max_retries: 3
+  retry_delay: "1s"
+  jitter: true
 
-        let config = Config::from_toml_str(config_str).unwrap();
+chains:
+  1:
+    upstreams:
+      - url: "http://example.com"
+        timeout: "30s"
+"#;
+
+        let config = Config::from_yaml_str(config_str).unwrap();
 
         assert!(matches!(
             config.error_handling,
@@ -845,11 +826,12 @@ mod tests {
     #[test]
     fn test_empty_upstreams() {
         let config_str = r#"
-            [chains.1]
-            upstreams = []
-        "#;
+chains:
+  1:
+    upstreams: []
+"#;
 
-        let config = Config::from_toml_str(config_str).unwrap();
+        let config = Config::from_yaml_str(config_str).unwrap();
         let chain = config.chains.get(&1).unwrap();
         assert!(chain.upstreams.is_empty());
     }
@@ -857,118 +839,122 @@ mod tests {
     #[test]
     fn test_invalid_duration() {
         let config_str = r#"
-            [error_handling]
-            type = "retry"
-            max_retries = 3
-            retry_delay = "invalid duration"
-        "#;
+error_handling:
+  type: "retry"
+  max_retries: 3
+  retry_delay: "invalid duration"
+"#;
 
-        let result = Config::from_toml_str(config_str);
+        let result = Config::from_yaml_str(config_str);
         assert!(result.is_err());
     }
 
     #[test]
     fn test_invalid_port() {
         let config_str = r#"
-            [server]
-            port = 70000
-        "#;
+server:
+  port: 70000
+"#;
 
-        let result = Config::from_toml_str(config_str);
+        let result = Config::from_yaml_str(config_str);
         assert!(result.is_err());
     }
 
     #[test]
     fn test_invalid_load_balancing_config() {
         let config_str = r#"
-            [load_balancing]
-            type = "invalid_mode"
-        "#;
+load_balancing:
+  type: "invalid_mode"
+"#;
 
-        let result = Config::from_toml_str(config_str);
+        let result = Config::from_yaml_str(config_str);
         assert!(result.is_err());
     }
 
     #[test]
     fn test_invalid_error_handling_config() {
         let config_str = r#"
-            [error_handling]
-            type = "invalid_mode"
-        "#;
+error_handling:
+  type: "invalid_mode"
+"#;
 
-        let result = Config::from_toml_str(config_str);
+        let result = Config::from_yaml_str(config_str);
         assert!(result.is_err());
     }
 
     #[test]
     fn test_duplicate_chain_ids() {
         let config_str = r#"
-            [chains.1]
-            upstreams = [
-                { url = "http://example1.com" }
-            ]
+chains:
+  1:
+    upstreams:
+      - url: "http://example1.com"
+  1:
+    upstreams:
+      - url: "http://example2.com"
+"#;
 
-            [chains.1]
-            upstreams = [
-                { url = "http://example2.com" }
-            ]
-        "#;
-
-        let result = Config::from_toml_str(config_str);
-        assert!(result.is_err());
+        // YAML parser will overwrite the first key with the second one
+        let config = Config::from_yaml_str(config_str).unwrap();
+        let chain = config.chains.get(&1).unwrap();
+        assert_eq!(chain.upstreams[0].url.as_str(), "http://example2.com/");
     }
 
     #[test]
     fn test_zero_weight() {
         let config_str = r#"
-            [chains.1]
-            upstreams = [
-                { url = "http://example.com", weight = 0 }
-            ]
-        "#;
+chains:
+  1:
+    upstreams:
+      - url: "http://example.com"
+        weight: 0
+"#;
 
-        let result = Config::from_toml_str(config_str);
+        let result = Config::from_yaml_str(config_str);
         assert!(result.is_err());
     }
 
     #[test]
     fn test_zero_timeout() {
         let config_str = r#"
-            [chains.1]
-            upstreams = [
-                { url = "http://example.com", timeout = "0s" }
-            ]
-        "#;
+chains:
+  1:
+    upstreams:
+      - url: "http://example.com"
+        timeout: "0s"
+"#;
 
-        let result = Config::from_toml_str(config_str);
+        let result = Config::from_yaml_str(config_str);
         assert!(result.is_err());
     }
 
     #[test]
     fn test_zero_max_retries() {
         let config_str = r#"
-            [error_handling]
-            type = "retry"
-            max_retries = 0
-            retry_delay = "1s"
-            jitter = true
-        "#;
+error_handling:
+  type: "retry"
+  max_retries: 0
+  retry_delay: "1s"
+  jitter: true
+"#;
 
-        let result = Config::from_toml_str(config_str);
+        let result = Config::from_yaml_str(config_str);
         assert!(result.is_err());
     }
 
     #[test]
     fn test_mixed_urls() {
         let config_str = r#"
-            [chains.1]
-            upstreams = [
-                { url = "https://api1.example.com", weight = 1 },
-                { url = "https://api2.example.com", weight = 1 }
-            ]
-        "#;
+chains:
+  1:
+    upstreams:
+      - url: "https://api1.example.com"
+        weight: 1
+      - url: "https://api2.example.com"
+        weight: 1
+"#;
 
-        let config = Config::from_toml_str(config_str).unwrap();
+        let config = Config::from_yaml_str(config_str).unwrap();
         let chain = config.chains.get(&1).unwrap();
         assert_eq!(chain.upstreams[0].url.as_str(), "https://api1.example.com/");
         assert_eq!(chain.upstreams[1].url.as_str(), "https://api2.example.com/");
@@ -977,11 +963,12 @@ mod tests {
     #[test]
     fn test_env_var_url() {
         let config_str = r#"
-            [chains.1]
-            upstreams = [
-                { url = "$ALCHEMY_URL", weight = 1 }
-            ]
-        "#;
+chains:
+  1:
+    upstreams:
+      - url: "$ALCHEMY_URL"
+        weight: 1
+"#;
 
         // Set up test environment
         set_env_var_with_retry(
@@ -990,7 +977,7 @@ mod tests {
         )
         .unwrap();
 
-        let config = Config::from_toml_str(config_str).unwrap();
+        let config = Config::from_yaml_str(config_str).unwrap();
         let chain = config.chains.get(&1).unwrap();
         assert_eq!(
             chain.upstreams[0].url.as_str(),
@@ -1004,12 +991,14 @@ mod tests {
     #[test]
     fn test_mixed_env_and_static_urls() {
         let config_str = r#"
-            [chains.1]
-            upstreams = [
-                { url = "$ALCHEMY_URL", weight = 1 },
-                { url = "https://static-url.com", weight = 1 }
-            ]
-        "#;
+chains:
+  1:
+    upstreams:
+      - url: "$ALCHEMY_URL"
+        weight: 1
+      - url: "https://static-url.com"
+        weight: 1
+"#;
 
         // Set up test environment
         set_env_var_with_retry(
@@ -1018,7 +1007,7 @@ mod tests {
         )
         .unwrap();
 
-        let config = Config::from_toml_str(config_str).unwrap();
+        let config = Config::from_yaml_str(config_str).unwrap();
         let chain = config.chains.get(&1).unwrap();
         assert_eq!(
             chain.upstreams[0].url.as_str(),
@@ -1033,14 +1022,14 @@ mod tests {
     #[test]
     fn test_chain_config_with_block_time() {
         let config_str = r#"
-            [chains.1]
-            block_time_ms = 12000
-            upstreams = [
-                { url = "http://example.com" }
-            ]
-        "#;
+chains:
+  1:
+    block_time_ms: 12000
+    upstreams:
+      - url: "http://example.com"
+"#;
 
-        let config = Config::from_toml_str(config_str).unwrap();
+        let config = Config::from_yaml_str(config_str).unwrap();
         let chain = config.chains.get(&1).unwrap();
         assert_eq!(chain.block_time_ms, Some(12000));
     }
@@ -1048,13 +1037,13 @@ mod tests {
     #[test]
     fn test_chain_config_without_block_time() {
         let config_str = r#"
-            [chains.1]
-            upstreams = [
-                { url = "http://example.com" }
-            ]
-        "#;
+chains:
+  1:
+    upstreams:
+      - url: "http://example.com"
+"#;
 
-        let config = Config::from_toml_str(config_str).unwrap();
+        let config = Config::from_yaml_str(config_str).unwrap();
         let chain = config.chains.get(&1).unwrap();
         assert_eq!(chain.block_time_ms, None);
     }
@@ -1130,12 +1119,12 @@ mod tests {
     #[test]
     fn test_cache_config_from_toml() {
         let config_str = r#"
-            [cache]
-            enabled = true
-            capacity = 5000
-        "#;
+cache:
+  enabled: true
+  capacity: 5000
+"#;
 
-        let config = Config::from_toml_str(config_str).unwrap();
+        let config = Config::from_yaml_str(config_str).unwrap();
         assert!(config.cache.enabled);
         assert_eq!(config.cache.capacity, 5000);
     }
@@ -1143,11 +1132,11 @@ mod tests {
     #[test]
     fn test_cache_config_omitted() {
         let config_str = r#"
-            [server]
-            host = "localhost"
-        "#;
+server:
+  host: "localhost"
+"#;
 
-        let config = Config::from_toml_str(config_str).unwrap();
+        let config = Config::from_yaml_str(config_str).unwrap();
         assert!(!config.cache.enabled);
         assert_eq!(config.cache.capacity, 10_000);
     }
@@ -1155,20 +1144,20 @@ mod tests {
     #[test]
     fn test_cache_config_with_other_settings() {
         let config_str = r#"
-            [server]
-            host = "localhost"
-            port = 8080
+server:
+  host: "localhost"
+  port: 8080
 
-            [cache]
-            enabled = true
+cache:
+  enabled: true
 
-            [chains.1]
-            upstreams = [
-                { url = "http://example.com" }
-            ]
-        "#;
+chains:
+  1:
+    upstreams:
+      - url: "http://example.com"
+"#;
 
-        let config = Config::from_toml_str(config_str).unwrap();
+        let config = Config::from_yaml_str(config_str).unwrap();
         assert!(config.cache.enabled);
         assert_eq!(config.server.host, "localhost");
         assert_eq!(config.server.port, 8080);

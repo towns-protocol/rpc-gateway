@@ -1,0 +1,49 @@
+server:
+  host: "127.0.0.1"
+  port: 9090
+
+load_balancing:
+  type: "weighted_round_robin"
+  weight_decay: 0.5
+
+error_handling:
+  type: "retry"
+  max_retries: 3
+  retry_delay: "1s"
+  jitter: true
+
+cache:
+  enabled: true
+
+logging:
+  console:
+    enabled: true
+    level: "debug"
+    format: "text"
+    include_target: true
+    include_thread_ids: true
+    include_thread_names: true
+    include_file: true
+    include_line_number: true
+  file:
+    enabled: false
+    level: "info"
+    format: "json"
+    path: "logs/rpc-gateway.log"
+    rotation: "daily"
+    include_target: true
+    include_thread_ids: true
+    include_thread_names: true
+    include_file: true
+    include_line_number: true
+
+chains:
+  1:
+    block_time_ms: 12000
+    upstreams:
+      - url: "$ALCHEMY_URL"
+        timeout: "10s"
+        weight: 1
+      # - url: "$INFURA_URL"
+      #   timeout: "10s"
+      #   weight: 2

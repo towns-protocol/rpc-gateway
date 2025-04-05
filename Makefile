@@ -24,7 +24,7 @@ dev:
 	@echo "----------------------------------------"
 	@echo "Starting server..."
 	@mkdir -p logs
-	@cd rpc-gateway-core && watchexec -e rs -r cargo run -- -c $(PWD)/example.config.toml
+	watchexec -e rs -r cargo run -- -c $(PWD)/example.config.yml
 
 test:
 	@echo "Running tests..."
