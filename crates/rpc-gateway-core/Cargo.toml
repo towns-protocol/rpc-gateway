@@ -26,7 +26,6 @@ serde_json.workspace = true
 serde_yaml = "0.9"
 thiserror.workspace = true
 tokio.workspace = true
-toml.workspace = true
 tracing.workspace = true
 tracing-actix-web.workspace = true
 tracing-appender.workspace = true

@@ -40,8 +40,6 @@ spec:
           {{- end }}
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
-          command: ["/usr/local/bin/rpc-gateway"]
-          args: ["-c", "/app/config/config.toml"]
           ports:
             - name: http
               containerPort: 8080
@@ -60,7 +58,7 @@ spec:
             {{- toYaml .Values.env | nindent 12 }}
           volumeMounts:
             - name: config
-              mountPath: /app/config
+              mountPath: /etc/rpc-gateway/config.yaml
           {{- with .Values.volumeMounts }}
             {{- toYaml . | nindent 12 }}
           {{- end }}

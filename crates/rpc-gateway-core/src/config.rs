@@ -339,60 +339,6 @@ fn default_cache_capacity() -> u64 {
 }
 
 impl Config {
-    pub fn from_toml_str(s: &str) -> Result<Self, toml::de::Error> {
-        let config: Config = toml::from_str(s)?;
-
-        // Validate error handling configuration
-        match &config.error_handling {
-            ErrorHandlingConfig::Retry { max_retries, .. } if *max_retries == 0 => {
-                return Err(serde::de::Error::custom(
-                    "max_retries must be greater than 0",
-                ));
-            }
-            ErrorHandlingConfig::FailFast {
-                error_threshold, ..
-            } if *error_threshold == 0 => {
-                return Err(serde::de::Error::custom(
-                    "error_threshold must be greater than 0",
-                ));
-            }
-            ErrorHandlingConfig::CircuitBreaker {
-                failure_threshold,
-                half_open_requests,
-                ..
-            } if *failure_threshold == 0 || *half_open_requests == 0 => {
-                return Err(serde::de::Error::custom(
-                    "failure_threshold and half_open_requests must be greater than 0",
-                ));
-            }
-            _ => {}
-        }
-
-        // Validate weights
-        for (chain_id, chain) in &config.chains {
-            for upstream in &chain.upstreams {
-                if upstream.weight == 0 {
-                    return Err(serde::de::Error::custom(format!(
-                        "weight must be greater than 0 in chain {}",
-                        chain_id
-                    )));
-                }
-            }
-        }
-
-        Ok(config)
-    }
-
-    pub fn from_toml_file(path: &str) -> Result<Self, Box<dyn std::error::Error>> {
-        let contents = std::fs::read_to_string(path)?;
-        Ok(Self::from_toml_str(&contents)?)
-    }
-
-    pub fn from_path_buf(path: &PathBuf) -> Result<Self, Box<dyn std::error::Error>> {
-        let contents = std::fs::read_to_string(path)?;
-        Ok(Self::from_toml_str(&contents)?)
-    }
-
     pub fn from_yaml_str(s: &str) -> Result<Self, Box<dyn std::error::Error>> {
         let mut config: Config = serde_yaml::from_str(s)?;
         config.process_urls()?;
@@ -1117,7 +1063,7 @@ chains:
     }
 
     #[test]
-    fn test_cache_config_from_toml() {
+    fn test_cache_config_from_yaml() {
         let config_str = r#"
 cache:
   enabled: true
