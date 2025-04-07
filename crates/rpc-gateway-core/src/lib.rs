@@ -6,3 +6,4 @@ pub mod gateway;
 pub mod logging;
 pub mod request_pool;
 pub mod server;
+pub mod upstream;
