@@ -11,7 +11,7 @@ pub struct Config {
     #[serde(default)]
     pub server: ServerConfig,
     #[serde(default)]
-    pub load_balancing: LoadBalancingConfig,
+    pub load_balancing: LoadBalancingStrategy,
     #[serde(default)]
     pub error_handling: ErrorHandlingConfig,
     #[serde(default)]
@@ -32,22 +32,15 @@ pub struct ServerConfig {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(tag = "type", rename_all = "snake_case")]
-pub enum LoadBalancingConfig {
+#[serde(tag = "strategy", rename_all = "snake_case")]
+pub enum LoadBalancingStrategy {
     RoundRobin,
-    WeightedRoundRobin {
-        #[serde(default = "default_weight_decay")]
-        weight_decay: f64,
-    },
-    LeastConnections {
-        #[serde(default = "default_connection_multiplier")]
-        connection_multiplier: f64,
-    },
+    WeightedOrder,
 }
 
-impl Default for LoadBalancingConfig {
+impl Default for LoadBalancingStrategy {
     fn default() -> Self {
-        default_load_balancing_config()
+        default_load_balancing_strategy()
     }
 }
 
@@ -239,10 +232,8 @@ fn default_port() -> u16 {
     9090
 }
 
-fn default_load_balancing_config() -> LoadBalancingConfig {
-    LoadBalancingConfig::WeightedRoundRobin {
-        weight_decay: default_weight_decay(),
-    }
+fn default_load_balancing_strategy() -> LoadBalancingStrategy {
+    LoadBalancingStrategy::WeightedOrder
 }
 
 fn default_error_handling_config() -> ErrorHandlingConfig {
@@ -375,7 +366,7 @@ impl Default for Config {
     fn default() -> Self {
         Self {
             server: ServerConfig::default(),
-            load_balancing: default_load_balancing_config(),
+            load_balancing: default_load_balancing_strategy(),
             error_handling: ErrorHandlingConfig::default(),
             logging: LoggingConfig::default(),
             cache: CacheConfig::default(),
@@ -647,7 +638,7 @@ mod tests {
         assert_eq!(config.server.port, 9090);
         assert!(matches!(
             config.load_balancing,
-            LoadBalancingConfig::WeightedRoundRobin { weight_decay } if weight_decay == 0.5
+            LoadBalancingStrategy::WeightedOrder
         ));
         assert!(matches!(
             config.error_handling,
@@ -668,8 +659,7 @@ server:
   port: 8080
 
 load_balancing:
-  type: "weighted_round_robin"
-  weight_decay: 0.5
+  strategy: "weighted_order"
 
 error_handling:
   type: "retry"
@@ -691,7 +681,7 @@ chains:
         assert_eq!(config.server.port, 8080);
         assert!(matches!(
             config.load_balancing,
-            LoadBalancingConfig::WeightedRoundRobin { weight_decay } if weight_decay == 0.5
+            LoadBalancingStrategy::WeightedOrder
         ));
         assert!(matches!(
             config.error_handling,
@@ -810,7 +800,7 @@ server:
     fn test_invalid_load_balancing_config() {
         let config_str = r#"
 load_balancing:
-  type: "invalid_mode"
+  strategy: "invalid_mode"
 "#;
 
         let result = Config::from_yaml_str(config_str);

@@ -1,4 +1,4 @@
-use crate::config::{CacheConfig, ChainConfig, Config, ErrorHandlingConfig, LoadBalancingConfig};
+use crate::config::{CacheConfig, ChainConfig, Config, ErrorHandlingConfig, LoadBalancingStrategy};
 use alloy_json_rpc::{Request, Response, ResponsePayload};
 use serde_json::Value;
 use std::borrow::Cow;
@@ -19,7 +19,7 @@ impl ChainHandler {
     pub fn new(
         chain_config: ChainConfig,
         error_handling: ErrorHandlingConfig,
-        load_balancing: LoadBalancingConfig,
+        load_balancing: LoadBalancingStrategy,
         cache_config: CacheConfig,
     ) -> Self {
         info!(
