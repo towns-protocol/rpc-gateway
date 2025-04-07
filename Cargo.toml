@@ -17,12 +17,10 @@ repository = "https://github.com/whats-good/rpc-gateway"
 # TODO: add lint extensions
 
 [workspace.dependencies]
-actix-web = "4.4"
-alloy-chains = "0.1"
-alloy-json-rpc = "0.13.0"
-alloy-sol-types = "1.0.0"
+arc-swap = "1.7.0"
 clap = { version = "4.4", features = ["derive"] }
 moka = { version = "0.12.10", features = ["future"] }
+nonempty = "0.11.0"
 rand = "0.9.0"
 reqwest = { version = "0.12.15", features = ["json"] }
 serde = { version = "1.0", features = ["derive"] }
@@ -35,3 +33,7 @@ tracing-actix-web = "0.7"
 tracing-appender = { version = "0.2" }
 tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
 url = "2.5"
+actix-web = "4.4"
+alloy-chains = "0.1"
+alloy-json-rpc = "0.13.0"
+alloy-sol-types = "1.0.0"

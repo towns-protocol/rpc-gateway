@@ -1,4 +1,4 @@
-use crate::config::{ChainConfig, ErrorHandlingConfig, LoadBalancingConfig};
+use crate::config::{ChainConfig, ErrorHandlingConfig, LoadBalancingStrategy};
 use crate::upstream::Upstream;
 use alloy_json_rpc::{Request, Response};
 use rand::Rng;
@@ -15,14 +15,14 @@ pub struct ChainRequestPool {
     client: Client,
     upstreams: Arc<Mutex<Vec<Upstream>>>,
     error_handling: Arc<ErrorHandlingConfig>,
-    load_balancing: Arc<LoadBalancingConfig>,
+    load_balancing: Arc<LoadBalancingStrategy>,
 }
 
 impl ChainRequestPool {
     pub fn new(
         chain_config: ChainConfig,
         error_handling: ErrorHandlingConfig,
-        load_balancing: LoadBalancingConfig,
+        load_balancing: LoadBalancingStrategy,
     ) -> Self {
         info!(
             chain = ?chain_config.chain,
@@ -156,24 +156,14 @@ impl ChainRequestPool {
         &self,
         request: Request<Value>,
     ) -> Result<Response<Value>, Box<dyn std::error::Error>> {
-        let upstream = match &*self.load_balancing {
-            LoadBalancingConfig::RoundRobin => {
+        let upstream: Upstream = match &*self.load_balancing {
+            LoadBalancingStrategy::RoundRobin => {
                 debug!("Using round-robin load balancing");
-                self.select_upstream_round_robin().await?
+                unimplemented!()
             }
-            LoadBalancingConfig::WeightedRoundRobin { weight_decay } => {
-                debug!(
-                    weight_decay = %weight_decay,
-                    "Using weighted round-robin load balancing"
-                );
-                self.select_upstream_weighted_round_robin(*weight_decay)
-                    .await?
-            }
-            LoadBalancingConfig::LeastConnections { .. } => {
-                warn!(
-                    "Least connections strategy not yet implemented, falling back to round-robin"
-                );
-                self.select_upstream_round_robin().await?
+            LoadBalancingStrategy::WeightedOrder => {
+                debug!("Using weighted order load balancing");
+                unimplemented!()
             }
         };
 

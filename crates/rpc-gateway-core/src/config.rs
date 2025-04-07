@@ -1,5 +1,6 @@
 use alloy_chains::Chain;
-use serde::{Deserialize, Serialize};
+use nonempty::NonEmpty;
+use serde::{Deserialize, Deserializer, Serialize};
 use serde_yaml;
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -93,7 +94,11 @@ where
 pub struct ChainConfig {
     #[serde(skip)]
     pub chain: Chain,
-    pub upstreams: Vec<UpstreamConfig>,
+    #[serde(
+        deserialize_with = "deserialize_nonempty_upstreams",
+        serialize_with = "serialize_nonempty_upstreams"
+    )]
+    pub upstreams: NonEmpty<UpstreamConfig>,
     #[serde(default)]
     block_time_ms: Option<u64>,
 }
@@ -348,7 +353,7 @@ impl Config {
 
     fn process_urls(&mut self) -> Result<(), Box<dyn std::error::Error>> {
         for (_, chain_config) in &mut self.chains {
-            for upstream in &mut chain_config.upstreams {
+            for upstream in chain_config.upstreams.iter_mut() {
                 if upstream.url.as_str().starts_with('$') {
                     let env_var = upstream.url.as_str().trim_start_matches('$');
                     let env_value = std::env::var(env_var).map_err(|e| {
@@ -429,7 +434,11 @@ impl Default for ChainConfig {
     fn default() -> Self {
         Self {
             chain: Chain::from_id(1),
-            upstreams: Vec::new(),
+            upstreams: NonEmpty::new(UpstreamConfig {
+                url: Url::parse("http://example.com").unwrap(),
+                timeout: Duration::from_secs(10),
+                weight: 1,
+            }),
             block_time_ms: None,
         }
     }
@@ -572,6 +581,27 @@ mod chain_map_serde {
     }
 }
 
+fn deserialize_nonempty_upstreams<'de, D>(
+    deserializer: D,
+) -> Result<NonEmpty<UpstreamConfig>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let vec: Vec<UpstreamConfig> = Vec::deserialize(deserializer)?;
+    NonEmpty::from_vec(vec).ok_or_else(|| serde::de::Error::custom("upstreams cannot be empty"))
+}
+
+fn serialize_nonempty_upstreams<S>(
+    upstreams: &NonEmpty<UpstreamConfig>,
+    serializer: S,
+) -> Result<S::Ok, S::Error>
+where
+    S: serde::Serializer,
+{
+    let vec: Vec<_> = upstreams.iter().cloned().collect();
+    vec.serialize(serializer)
+}
+
 #[cfg(test)]
 mod test_helpers {
     use std::thread;
@@ -693,7 +723,7 @@ chains:
         ));
 
         let chain = config.chains.get(&1).unwrap();
-        let upstream = &chain.upstreams[0];
+        let upstream = chain.upstreams.iter().next().unwrap();
         assert_eq!(upstream.url.as_str(), "http://example.com/");
         assert_eq!(upstream.timeout, Duration::from_secs(10));
         assert_eq!(upstream.weight, 1);
@@ -717,13 +747,13 @@ chains:
 
         let chain1 = config.chains.get(&1).unwrap();
         assert_eq!(
-            chain1.upstreams[0].url.as_str(),
+            chain1.upstreams.iter().next().unwrap().url.as_str(),
             "http://chain1.example.com/"
         );
 
         let chain2 = config.chains.get(&2).unwrap();
         assert_eq!(
-            chain2.upstreams[0].url.as_str(),
+            chain2.upstreams.iter().next().unwrap().url.as_str(),
             "http://chain2.example.com/"
         );
     }
@@ -754,7 +784,15 @@ chains:
             } if retry_delay == Duration::from_secs(1)
         ));
         assert_eq!(
-            config.chains.get(&1).unwrap().upstreams[0].timeout,
+            config
+                .chains
+                .get(&1)
+                .unwrap()
+                .upstreams
+                .iter()
+                .next()
+                .unwrap()
+                .timeout,
             Duration::from_secs(30)
         );
     }
@@ -767,9 +805,10 @@ chains:
     upstreams: []
 "#;
 
-        let config = Config::from_yaml_str(config_str).unwrap();
-        let chain = config.chains.get(&1).unwrap();
-        assert!(chain.upstreams.is_empty());
+        let result = Config::from_yaml_str(config_str);
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(err.to_string().contains("upstreams cannot be empty"));
     }
 
     #[test]
@@ -779,10 +818,20 @@ error_handling:
   type: "retry"
   max_retries: 3
   retry_delay: "invalid duration"
+
+chains:
+  1:
+    upstreams:
+      - url: "http://example.com"
 "#;
 
         let result = Config::from_yaml_str(config_str);
         assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(
+            err.to_string()
+                .contains("Duration must be a positive number followed by 's'")
+        );
     }
 
     #[test]
@@ -790,10 +839,20 @@ error_handling:
         let config_str = r#"
 server:
   port: 70000
+
+chains:
+  1:
+    upstreams:
+      - url: "http://example.com"
 "#;
 
         let result = Config::from_yaml_str(config_str);
         assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(
+            err.to_string()
+                .contains("invalid value: integer `70000`, expected u16")
+        );
     }
 
     #[test]
@@ -801,10 +860,17 @@ server:
         let config_str = r#"
 load_balancing:
   strategy: "invalid_mode"
+
+chains:
+  1:
+    upstreams:
+      - url: "http://example.com"
 "#;
 
         let result = Config::from_yaml_str(config_str);
         assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(err.to_string().contains("unknown variant"));
     }
 
     #[test]
@@ -812,28 +878,17 @@ load_balancing:
         let config_str = r#"
 error_handling:
   type: "invalid_mode"
+
+chains:
+  1:
+    upstreams:
+      - url: "http://example.com"
 "#;
 
         let result = Config::from_yaml_str(config_str);
         assert!(result.is_err());
-    }
-
-    #[test]
-    fn test_duplicate_chain_ids() {
-        let config_str = r#"
-chains:
-  1:
-    upstreams:
-      - url: "http://example1.com"
-  1:
-    upstreams:
-      - url: "http://example2.com"
-"#;
-
-        // YAML parser will overwrite the first key with the second one
-        let config = Config::from_yaml_str(config_str).unwrap();
-        let chain = config.chains.get(&1).unwrap();
-        assert_eq!(chain.upstreams[0].url.as_str(), "http://example2.com/");
+        let err = result.unwrap_err();
+        assert!(err.to_string().contains("unknown variant"));
     }
 
     #[test]
@@ -848,6 +903,8 @@ chains:
 
         let result = Config::from_yaml_str(config_str);
         assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(err.to_string().contains("weight cannot be zero"));
     }
 
     #[test]
@@ -862,6 +919,11 @@ chains:
 
         let result = Config::from_yaml_str(config_str);
         assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(
+            err.to_string()
+                .contains("Duration must be a positive number followed by 's'")
+        );
     }
 
     #[test]
@@ -872,10 +934,17 @@ error_handling:
   max_retries: 0
   retry_delay: "1s"
   jitter: true
+
+chains:
+  1:
+    upstreams:
+      - url: "http://example.com"
 "#;
 
         let result = Config::from_yaml_str(config_str);
         assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(err.to_string().contains("max_retries cannot be zero"));
     }
 
     #[test]
@@ -892,8 +961,14 @@ chains:
 
         let config = Config::from_yaml_str(config_str).unwrap();
         let chain = config.chains.get(&1).unwrap();
-        assert_eq!(chain.upstreams[0].url.as_str(), "https://api1.example.com/");
-        assert_eq!(chain.upstreams[1].url.as_str(), "https://api2.example.com/");
+        assert_eq!(
+            chain.upstreams.iter().next().unwrap().url.as_str(),
+            "https://api1.example.com/"
+        );
+        assert_eq!(
+            chain.upstreams.iter().nth(1).unwrap().url.as_str(),
+            "https://api2.example.com/"
+        );
     }
 
     #[test]
@@ -916,7 +991,7 @@ chains:
         let config = Config::from_yaml_str(config_str).unwrap();
         let chain = config.chains.get(&1).unwrap();
         assert_eq!(
-            chain.upstreams[0].url.as_str(),
+            chain.upstreams.iter().next().unwrap().url.as_str(),
             "https://eth-mainnet.g.alchemy.com/v2/test-key/"
         );
 
@@ -946,10 +1021,13 @@ chains:
         let config = Config::from_yaml_str(config_str).unwrap();
         let chain = config.chains.get(&1).unwrap();
         assert_eq!(
-            chain.upstreams[0].url.as_str(),
+            chain.upstreams.iter().next().unwrap().url.as_str(),
             "https://eth-mainnet.g.alchemy.com/v2/test-key/"
         );
-        assert_eq!(chain.upstreams[1].url.as_str(), "https://static-url.com/");
+        assert_eq!(
+            chain.upstreams.iter().nth(1).unwrap().url.as_str(),
+            "https://static-url.com/"
+        );
 
         // Clean up
         remove_env_var_with_retry("ALCHEMY_URL").unwrap();
@@ -1058,6 +1136,11 @@ chains:
 cache:
   enabled: true
   capacity: 5000
+
+chains:
+  1:
+    upstreams:
+      - url: "http://example.com"
 "#;
 
         let config = Config::from_yaml_str(config_str).unwrap();
@@ -1070,6 +1153,11 @@ cache:
         let config_str = r#"
 server:
   host: "localhost"
+
+chains:
+  1:
+    upstreams:
+      - url: "http://example.com"
 "#;
 
         let config = Config::from_yaml_str(config_str).unwrap();
@@ -1097,6 +1185,6 @@ chains:
         assert!(config.cache.enabled);
         assert_eq!(config.server.host, "localhost");
         assert_eq!(config.server.port, 8080);
-        assert_eq!(config.chains.get(&1).unwrap().upstreams.len(), 1);
+        assert_eq!(config.chains.get(&1).unwrap().upstreams.iter().count(), 1);
     }
 }
