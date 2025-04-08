@@ -54,8 +54,13 @@ impl ChainHandler {
     }
 
     #[instrument(skip(self))]
-    pub async fn readiness_probe(&self) {
-        self.request_pool.readiness_probe().await;
+    pub fn start_health_check_loop(&self) {
+        self.request_pool.start_health_check_loop();
+    }
+
+    #[instrument(skip(self))]
+    pub fn liveness_probe(&self) -> bool {
+        self.request_pool.liveness_probe()
     }
 
     #[instrument(skip(self, request))]

@@ -1,7 +1,8 @@
 use crate::config::Config;
 use alloy_json_rpc::{Request, Response, ResponsePayload};
 use serde_json::Value;
-use std::collections::HashMap;
+use std::{collections::HashMap, time::Duration};
+use tokio::time::sleep;
 use tracing::{debug, error, info, instrument};
 
 use crate::chain_handler::ChainHandler;
@@ -30,9 +31,22 @@ impl Gateway {
     }
 
     #[instrument(skip(self))]
-    pub async fn readiness_probe(&self) {
-        for (_, handler) in &self.handlers {
-            handler.readiness_probe().await;
+    pub fn liveness_probe(&self) -> bool {
+        // TODO: should this fail if even a single chain is not working?
+        self.handlers
+            .values()
+            .all(|handler| handler.liveness_probe())
+    }
+
+    #[instrument(skip(self))]
+    pub fn readiness_probe(&self) -> bool {
+        self.liveness_probe()
+    }
+
+    #[instrument(skip(self))]
+    pub fn start_health_check_loop(&self) {
+        for handler in self.handlers.values() {
+            handler.start_health_check_loop();
         }
     }
 

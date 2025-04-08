@@ -1,17 +1,14 @@
-use actix_web::body::BoxBody;
-use actix_web::dev::{ServiceFactory, ServiceRequest, ServiceResponse};
-use actix_web::{App, Error, HttpServer, Result, post, web};
-use alloy_json_rpc;
-use serde_json::Value;
-use tracing::{debug, error, info};
-use tracing_actix_web::{StreamSpan, TracingLogger};
-
 use crate::config::Config;
 use crate::gateway::Gateway;
 use crate::logging;
 
+use actix_web::{App, HttpServer, Result, web};
+use alloy_json_rpc;
+use serde_json::Value;
+use tracing::{debug, error, info};
+use tracing_actix_web::TracingLogger;
+
 // TODO: add better error handling.
-#[post("/{chain_id}")]
 async fn index(
     path: web::Path<u64>,
     request: web::Json<alloy_json_rpc::Request<Value>>,
@@ -44,22 +41,24 @@ async fn index(
     Ok(serde_json::to_string(&response)?)
 }
 
-// Create a function to configure and return the App
-async fn create_app(
-    gateway: Gateway,
-) -> App<
-    impl ServiceFactory<
-        ServiceRequest,
-        Config = (),
-        Response = ServiceResponse<StreamSpan<BoxBody>>,
-        Error = Error,
-        InitError = (),
-    >,
-> {
-    App::new()
-        .wrap(TracingLogger::default())
-        .app_data(web::Data::new(gateway))
-        .service(index)
+async fn liveness_probe(gateway: web::Data<Gateway>) -> Result<String> {
+    if gateway.liveness_probe() {
+        Ok("OK".to_string())
+    } else {
+        Err(actix_web::error::ErrorInternalServerError(
+            "Gateway is not healthy",
+        ))
+    }
+}
+
+async fn readiness_probe(gateway: web::Data<Gateway>) -> Result<String> {
+    if gateway.readiness_probe() {
+        Ok("OK".to_string())
+    } else {
+        Err(actix_web::error::ErrorInternalServerError(
+            "Gateway is not ready",
+        ))
+    }
 }
 
 pub async fn run(config: Config) -> std::io::Result<()> {
@@ -72,13 +71,18 @@ pub async fn run(config: Config) -> std::io::Result<()> {
     );
 
     let gateway = Gateway::new(config.clone());
-    gateway.readiness_probe().await;
+    debug!(gateway = ?gateway, "Created gateway");
+
+    gateway.start_health_check_loop();
 
     HttpServer::new(move || {
         App::new()
             .wrap(TracingLogger::default())
             .app_data(web::Data::new(gateway.clone()))
-            .service(index)
+            .route("/{chain_id}", web::post().to(index))
+            .route("/health", web::get().to(liveness_probe))
+            .route("/health/liveness", web::get().to(liveness_probe))
+            .route("/health/readiness", web::get().to(readiness_probe))
     })
     .bind((config.server.host.as_str(), config.server.port))?
     .run()

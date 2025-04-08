@@ -37,6 +37,7 @@ pub struct ServerConfig {
 pub enum LoadBalancingStrategy {
     RoundRobin,
     WeightedOrder,
+    PrimaryOnly,
 }
 
 impl Default for LoadBalancingStrategy {
@@ -238,7 +239,7 @@ fn default_port() -> u16 {
 }
 
 fn default_load_balancing_strategy() -> LoadBalancingStrategy {
-    LoadBalancingStrategy::WeightedOrder
+    LoadBalancingStrategy::PrimaryOnly
 }
 
 fn default_error_handling_config() -> ErrorHandlingConfig {
@@ -430,6 +431,7 @@ impl Default for FileLogConfig {
     }
 }
 
+// TODO: audit the default values for everything
 impl Default for ChainConfig {
     fn default() -> Self {
         Self {

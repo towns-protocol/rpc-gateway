@@ -1,6 +1,8 @@
 use crate::config::{ChainConfig, ErrorHandlingConfig, LoadBalancingStrategy};
+use crate::load_balancer::{LoadBalancer, create_load_balancer};
 use crate::upstream::Upstream;
 use alloy_json_rpc::{Request, Response};
+use nonempty::NonEmpty;
 use rand::Rng;
 use reqwest::Client;
 use serde_json::Value;
@@ -12,63 +14,47 @@ use tracing::{debug, error, info, instrument, warn};
 #[derive(Debug, Clone)]
 pub struct ChainRequestPool {
     chain_config: Arc<ChainConfig>,
-    client: Client,
-    upstreams: Arc<Mutex<Vec<Upstream>>>,
     error_handling: Arc<ErrorHandlingConfig>,
-    load_balancing: Arc<LoadBalancingStrategy>,
+    load_balancer: Arc<dyn LoadBalancer>,
 }
 
 impl ChainRequestPool {
     pub fn new(
         chain_config: ChainConfig,
         error_handling: ErrorHandlingConfig,
-        load_balancing: LoadBalancingStrategy,
+        load_balancing_strategy: LoadBalancingStrategy,
     ) -> Self {
-        info!(
+        debug!(
             chain = ?chain_config.chain,
             "Creating new ChainRequestPool"
         );
 
-        let upstreams = chain_config
-            .upstreams
-            .iter()
-            .map(|config| Upstream::new(config.clone(), chain_config.chain))
-            .collect();
+        let upstreams = NonEmpty::from_vec(
+            chain_config
+                .upstreams
+                .iter()
+                .map(|config| Arc::new(Upstream::new(config.clone(), chain_config.chain)))
+                .collect::<Vec<_>>(),
+        )
+        .expect("Chain config must have at least one upstream");
+
+        debug!(upstreams = ?upstreams, "Created upstreams");
 
         Self {
             chain_config: Arc::new(chain_config),
-            client: Client::new(),
-            upstreams: Arc::new(Mutex::new(upstreams)),
             error_handling: Arc::new(error_handling),
-            load_balancing: Arc::new(load_balancing),
+            load_balancer: create_load_balancer(load_balancing_strategy, upstreams),
         }
     }
 
     #[instrument(skip(self))]
-    pub async fn readiness_probe(&self) {
-        // TODO: this should exit the process if no upstreams are healthy
-        let mut upstreams = self.upstreams.lock().await;
-        let mut i = 0;
+    pub fn start_health_check_loop(&self) {
+        self.load_balancer.start_health_check_loop();
+    }
 
-        while i < upstreams.len() {
-            let upstream = &upstreams[i];
-            if !upstream.readiness_probe(&self.client).await {
-                warn!(
-                    url = %upstream.config.url,
-                    "Removing unhealthy upstream"
-                );
-                upstreams.remove(i);
-            } else {
-                i += 1;
-            }
-        }
-
-        if upstreams.is_empty() {
-            error!(
-                chain = ?self.chain_config.chain,
-                "No healthy upstreams remaining"
-            );
-        }
+    #[instrument(skip(self))]
+    pub fn liveness_probe(&self) -> bool {
+        self.load_balancer.liveness_probe()
     }
 
     #[instrument(skip(self, request))]
@@ -150,76 +136,29 @@ impl ChainRequestPool {
         Err(last_error.unwrap_or_else(|| "Unknown error".into()))
     }
 
-    // TODO: verify weight decay behavior
     #[instrument(skip(self, request))]
     async fn forward_once(
         &self,
         request: Request<Value>,
     ) -> Result<Response<Value>, Box<dyn std::error::Error>> {
-        let upstream: Upstream = match &*self.load_balancing {
-            LoadBalancingStrategy::RoundRobin => {
-                debug!("Using round-robin load balancing");
-                unimplemented!()
+        match self.load_balancer.select_upstream() {
+            Some(upstream) => {
+                debug!(upstream = ?upstream, "Selected upstream");
+                let response = upstream
+                    .client
+                    .post(upstream.config.url.as_str())
+                    .json(&request)
+                    .send()
+                    .await?
+                    .json::<Response<Value>>()
+                    .await?;
+
+                Ok(response)
             }
-            LoadBalancingStrategy::WeightedOrder => {
-                debug!("Using weighted order load balancing");
-                unimplemented!()
-            }
-        };
-
-        debug!(upstream = ?upstream, "Selected upstream");
-        let response = self
-            .client
-            .post(upstream.config.url.as_str())
-            .json(&request)
-            .send()
-            .await?
-            .json::<Response<Value>>()
-            .await?;
-
-        Ok(response)
-    }
-
-    async fn select_upstream_round_robin(&self) -> Result<Upstream, Box<dyn std::error::Error>> {
-        debug!("Selecting first upstream (round-robin not implemented)");
-        let upstreams = self.upstreams.lock().await;
-        Ok(upstreams[0].clone())
-    }
-
-    async fn select_upstream_weighted_round_robin(
-        &self,
-        weight_decay: f64,
-    ) -> Result<Upstream, Box<dyn std::error::Error>> {
-        let mut upstreams = self.upstreams.lock().await;
-
-        // Find the upstream with the highest weight
-        let mut max_weight = f64::NEG_INFINITY;
-        let mut selected_index = 0;
-        for (i, upstream) in upstreams.iter().enumerate() {
-            if upstream.current_weight > max_weight {
-                max_weight = upstream.current_weight;
-                selected_index = i;
+            None => {
+                error!("No upstreams available");
+                Err("No upstreams available".into())
             }
         }
-
-        if selected_index >= upstreams.len() {
-            error!("No upstreams available");
-            return Err("No upstreams available".into());
-        }
-
-        debug!(
-            selected_index = %selected_index,
-            max_weight = %max_weight,
-            "Selected upstream"
-        );
-
-        // Apply weight decay
-        upstreams[selected_index].apply_weight_decay(weight_decay);
-        debug!(
-            new_weight = %upstreams[selected_index].current_weight,
-            "Applied weight decay"
-        );
-
-        Ok(upstreams[selected_index].clone())
     }
 }

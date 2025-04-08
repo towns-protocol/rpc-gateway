@@ -22,6 +22,7 @@ clap = { version = "4.4", features = ["derive"] }
 moka = { version = "0.12.10", features = ["future"] }
 nonempty = "0.11.0"
 rand = "0.9.0"
+futures = "0.3.31"
 reqwest = { version = "0.12.15", features = ["json"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"

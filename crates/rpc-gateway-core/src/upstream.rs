@@ -13,6 +13,7 @@ pub struct Upstream {
     pub config: UpstreamConfig,
     pub current_weight: f64,
     pub chain: Chain,
+    pub client: Client,
 }
 
 impl Upstream {
@@ -21,6 +22,7 @@ impl Upstream {
             current_weight: config.weight as f64,
             config,
             chain,
+            client: Client::new(),
         }
     }
 
@@ -33,8 +35,8 @@ impl Upstream {
     }
 
     // TODO: make this more efficient
-    #[instrument(skip(self, client))]
-    pub async fn readiness_probe(&self, client: &Client) -> bool {
+    #[instrument(skip(self))]
+    pub async fn readiness_probe(&self) -> bool {
         debug!(
             url = %self.config.url,
             expected_chain_id = %self.chain.id(),
@@ -50,7 +52,8 @@ impl Upstream {
 
             let request = Request::new("eth_chainId", Id::Number(1), Params::None);
 
-            let response = match client
+            let response = match self
+                .client
                 .post(self.config.url.as_str())
                 .json(&request)
                 .send()

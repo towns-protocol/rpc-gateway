@@ -3,8 +3,7 @@ server:
   port: 9090
 
 load_balancing:
-  type: "weighted_round_robin"
-  weight_decay: 0.5
+  strategy: "primary_only"
 
 error_handling:
   type: "retry"
