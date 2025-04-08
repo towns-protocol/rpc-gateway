@@ -71,6 +71,13 @@ helm-build:
 		helm package rpc-gateway && \
 		helm repo index . --url https://whats-good.github.io/rpc-gateway
 
+helm-publish:
+	@echo "Publishing Helm chart..."
+	@HELM_VERSION=$$(yq '.version' ./helm/rpc-gateway/Chart.yaml) && \
+		echo "Creating git tag helm-v$$HELM_VERSION" && \
+		git tag -a "helm-v$$HELM_VERSION" -m "Helm chart version $$HELM_VERSION" && \
+		git push origin "helm-v$$HELM_VERSION"
+
 # Show help
 help:
 	@echo "Available targets:"
