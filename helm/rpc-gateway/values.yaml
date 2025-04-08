@@ -11,6 +11,7 @@ image:
   # This sets the pull policy for images.
   pullPolicy: IfNotPresent
   # Overrides the image tag whose default is the chart appVersion.
+  # TODO: turn this into "lts" and create a release process
   tag: latest
 
 # This is for the secretes for pulling an image from a private repository more information can be found here: https://kubernetes.io/docs/tasks/configure-pod-container/pull-image-private-registry/
@@ -122,76 +123,40 @@ tolerations: []
 affinity: {}
 
 # Configuration for rpc-gateway
-# server:
-#   host: "0.0.0.0"
-#   port: 9090
+# config:
+#   server:
+#     host: "0.0.0.0"
+#     port: 9090
 
-# loadBalancing:
-#   type: "weighted_round_robin"
-#   weightDecay: 0.5
+#   loadBalancing:
+#     type: "weighted_round_robin"
+#     weightDecay: 0.5
 
-# errorHandling:
-#   type: "retry"
-#   maxRetries: 3
-#   retryDelay: "1s"
-#   jitter: true
+#   errorHandling:
+#     type: "retry"
+#     maxRetries: 3
+#     retryDelay: "1s"
+#     jitter: true
 
-# cache:
-#   enabled: false
-
-# logging:
-#   console:
-#     enabled: true
-
-#   file:
+#   cache:
 #     enabled: false
 
-# chains:
-#   1: # Ethereum Mainnet
-#     upstreams:
-#       - url: "http://mainnet:8545"
-#         timeout: "10s"
-#         weight: 1
+#   logging:
+#     console:
+#       enabled: true
+
+#     file:
+#       enabled: false
+
+#   chains:
+#     1: # Ethereum Mainnet
+#       upstreams:
+#         - url: "http://mainnet:8545"
+#           timeout: "10s"
+#           weight: 1
 
 # Environment variables to be set in the container
 env:
   # TODO: turn this into a regular config.rs field,
   - name: RUST_LOG
     value: "rpc_gateway=info,actix_web=info,reqwest=info"
-
-config:
-  server:
-    host: "0.0.0.0"
-    port: 9090
-
-  loadBalancing:
-    strategy: "primary_only"
-
-  errorHandling:
-    type: "retry"
-    maxRetries: 3
-    retryDelay: "1s"
-    jitter: true
-
-  cache:
-    enabled: false
-
-  logging:
-    console:
-      enabled: true
-
-    file:
-      enabled: false
-
-  chains:
-    84532:
-      upstreams:
-        - url: "$BASE_RPC_URL"
-          timeout: "10s"
-          weight: 1
-
-    6524490:
-      upstreams:
-        - url: "$RIVER_RPC_URL"
-          timeout: "10s"
-          weight: 1
