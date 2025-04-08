@@ -2,6 +2,12 @@
 
 # Docker image name
 IMAGE_NAME := rpc-gateway
+DOCKER_REGISTRY := whatsgood
+FULL_IMAGE_NAME := $(DOCKER_REGISTRY)/$(IMAGE_NAME)
+DOCKER_IMAGE_VERSION := $(shell git describe --tags --always --dirty)
+
+# Ensure shell commands exit on error
+.SHELLFLAGS := -e
 
 # Default target
 all: build
@@ -44,6 +50,21 @@ docker-clean:
 	@echo "Cleaning up Docker resources..."
 	docker rmi $(IMAGE_NAME) || true
 
+docker-publish:
+	@echo "Setting up Docker Buildx for multi-platform builds..."
+	@if ! docker buildx inspect multiplatform >/dev/null 2>&1; then \
+		docker buildx create --name multiplatform --driver docker-container --use; \
+	fi
+	@echo "Building and pushing multi-platform images..."
+	docker buildx build \
+		--platform linux/amd64,linux/arm64 \
+		--tag $(FULL_IMAGE_NAME):$(DOCKER_IMAGE_VERSION) \
+		--tag $(FULL_IMAGE_NAME):latest \
+		--push \
+		.
+	@echo "Successfully published $(FULL_IMAGE_NAME):$(DOCKER_IMAGE_VERSION) for multiple platforms"
+	@echo "Successfully published $(FULL_IMAGE_NAME):latest for multiple platforms"
+
 # Show help
 help:
 	@echo "Available targets:"
@@ -54,4 +75,5 @@ help:
 	@echo "  docker-build  - Build the Docker image"
 	@echo "  docker-run    - Run the Docker container"
 	@echo "  docker-clean  - Remove the Docker image"
+	@echo "  docker-publish - Publish the Docker image"
 	@echo "  help          - Show this help message" 
