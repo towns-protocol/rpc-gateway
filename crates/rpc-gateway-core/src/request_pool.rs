@@ -1,14 +1,14 @@
-use crate::config::{ChainConfig, ErrorHandlingConfig, LoadBalancingStrategy};
+use crate::config::{
+    ChainConfig, ErrorHandlingConfig, LoadBalancingStrategy, UpstreamHealthChecksConfig,
+};
 use crate::load_balancer::{LoadBalancer, create_load_balancer};
 use crate::upstream::Upstream;
 use alloy_json_rpc::{Request, Response};
 use nonempty::NonEmpty;
 use rand::Rng;
-use reqwest::Client;
 use serde_json::Value;
 use std::sync::Arc;
 use std::time::Duration;
-use tokio::sync::Mutex;
 use tracing::{debug, error, info, instrument, warn};
 
 #[derive(Debug, Clone)]
@@ -23,6 +23,7 @@ impl ChainRequestPool {
         chain_config: ChainConfig,
         error_handling: ErrorHandlingConfig,
         load_balancing_strategy: LoadBalancingStrategy,
+        upstream_health_checks_config: UpstreamHealthChecksConfig,
     ) -> Self {
         debug!(
             chain = ?chain_config.chain,
@@ -43,7 +44,11 @@ impl ChainRequestPool {
         Self {
             chain_config: Arc::new(chain_config),
             error_handling: Arc::new(error_handling),
-            load_balancer: create_load_balancer(load_balancing_strategy, upstreams),
+            load_balancer: create_load_balancer(
+                load_balancing_strategy,
+                upstream_health_checks_config,
+                upstreams,
+            ),
         }
     }
 

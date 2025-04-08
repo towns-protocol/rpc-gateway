@@ -1,4 +1,7 @@
-use crate::config::{CacheConfig, ChainConfig, Config, ErrorHandlingConfig, LoadBalancingStrategy};
+use crate::config::{
+    CacheConfig, ChainConfig, Config, ErrorHandlingConfig, LoadBalancingStrategy,
+    UpstreamHealthChecksConfig,
+};
 use alloy_json_rpc::{Request, Response, ResponsePayload};
 use serde_json::Value;
 use std::borrow::Cow;
@@ -20,6 +23,7 @@ impl ChainHandler {
         chain_config: ChainConfig,
         error_handling: ErrorHandlingConfig,
         load_balancing: LoadBalancingStrategy,
+        upstream_health_checks: UpstreamHealthChecksConfig,
         cache_config: CacheConfig,
     ) -> Self {
         info!(
@@ -29,8 +33,12 @@ impl ChainHandler {
             "Creating new ChainHandler"
         );
 
-        let request_pool =
-            ChainRequestPool::new(chain_config.clone(), error_handling, load_balancing);
+        let request_pool = ChainRequestPool::new(
+            chain_config.clone(),
+            error_handling,
+            load_balancing,
+            upstream_health_checks,
+        );
 
         let cache = if cache_config.enabled {
             if let Some(block_time) = chain_config.block_time {

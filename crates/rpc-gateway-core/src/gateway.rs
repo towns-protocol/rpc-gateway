@@ -1,15 +1,15 @@
 use crate::config::Config;
 use alloy_json_rpc::{Request, Response, ResponsePayload};
 use serde_json::Value;
-use std::{collections::HashMap, time::Duration};
-use tokio::time::sleep;
-use tracing::{debug, error, info, instrument};
+use std::collections::HashMap;
+use tracing::{debug, error, info, instrument, warn};
 
 use crate::chain_handler::ChainHandler;
 
 #[derive(Debug, Clone)]
 pub struct Gateway {
     handlers: HashMap<u64, ChainHandler>,
+    config: Config,
 }
 
 impl Gateway {
@@ -17,17 +17,18 @@ impl Gateway {
         info!(config = ?config, "Creating new Gateway");
         let mut handlers = HashMap::new();
 
-        for (chain_id, chain_config) in config.chains {
+        for (chain_id, chain_config) in &config.chains {
             let handler = ChainHandler::new(
-                chain_config,
+                chain_config.clone(),
                 config.error_handling.clone(),
                 config.load_balancing.clone(),
+                config.upstream_health_checks.clone(),
                 config.cache.clone(),
             );
-            handlers.insert(chain_id, handler);
+            handlers.insert(chain_id.clone(), handler);
         }
 
-        Self { handlers }
+        Self { handlers, config }
     }
 
     #[instrument(skip(self))]
@@ -45,6 +46,12 @@ impl Gateway {
 
     #[instrument(skip(self))]
     pub fn start_health_check_loops(&self) {
+        if !self.config.upstream_health_checks.enabled {
+            warn!("Health checks are disabled");
+            return;
+        }
+
+        debug!("Starting health check loops");
         for handler in self.handlers.values() {
             handler.start_health_check_loop();
         }

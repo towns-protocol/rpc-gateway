@@ -4,21 +4,34 @@ use arc_swap::ArcSwap;
 use futures::future::join_all;
 use nonempty::NonEmpty;
 use tokio::{task, time::sleep};
+use tracing::{debug, instrument};
 
-use crate::{config::LoadBalancingStrategy, upstream::Upstream};
+use crate::{
+    config::{LoadBalancingStrategy, UpstreamHealthChecksConfig},
+    upstream::Upstream,
+};
 
 /// Tracks upstream health and exposes the healthy set.
 #[derive(Debug)]
 struct HealthCheckManager {
     all_upstreams: NonEmpty<Arc<Upstream>>,
+    config: UpstreamHealthChecksConfig,
     healthy_upstreams: ArcSwap<Vec<Arc<Upstream>>>,
 }
 
 impl HealthCheckManager {
-    pub fn new(all_upstreams: NonEmpty<Arc<Upstream>>) -> Self {
-        Self {
-            all_upstreams,
-            healthy_upstreams: ArcSwap::from_pointee(vec![]),
+    pub fn new(all_upstreams: NonEmpty<Arc<Upstream>>, config: UpstreamHealthChecksConfig) -> Self {
+        match config.enabled {
+            true => Self {
+                healthy_upstreams: ArcSwap::from_pointee(vec![]),
+                all_upstreams,
+                config,
+            },
+            false => Self {
+                healthy_upstreams: ArcSwap::from_pointee(all_upstreams.clone().into()),
+                all_upstreams,
+                config,
+            },
         }
     }
 
@@ -61,14 +74,20 @@ pub struct PrimaryOnlyLoadBalancer {
 }
 
 impl PrimaryOnlyLoadBalancer {
-    pub fn new(all_upstreams: NonEmpty<Arc<Upstream>>) -> Self {
+    pub fn new(
+        all_upstreams: NonEmpty<Arc<Upstream>>,
+        health_checks_config: UpstreamHealthChecksConfig,
+    ) -> Self {
         let primary = all_upstreams
             .iter()
             .max_by_key(|u| u.config.weight)
             .cloned()
             .expect("NonEmpty should have at least one upstream");
 
-        let manager = Arc::new(HealthCheckManager::new(NonEmpty::new(primary)));
+        let manager = Arc::new(HealthCheckManager::new(
+            NonEmpty::new(primary),
+            health_checks_config,
+        ));
 
         Self {
             health_check_manager: manager,
@@ -83,13 +102,16 @@ impl LoadBalancer for PrimaryOnlyLoadBalancer {
     }
 
     // TODO: use a task manager here for graceful shutdown
+    #[instrument(skip(self))]
     fn start_health_check_loop(&self) {
         let manager = Arc::clone(&self.health_check_manager);
+        let sleep_duration = self.health_check_manager.config.interval;
 
         task::spawn(async move {
             loop {
                 manager.run_health_checks().await;
-                sleep(Duration::from_secs(60)).await; // TODO: make this configurable
+                debug!("Sleeping for {} seconds", sleep_duration.as_secs());
+                sleep(sleep_duration).await;
             }
         });
     }
@@ -101,10 +123,14 @@ impl LoadBalancer for PrimaryOnlyLoadBalancer {
 
 pub fn create_load_balancer(
     load_balancing_strategy: LoadBalancingStrategy,
+    upstream_health_checks_config: UpstreamHealthChecksConfig,
     all_upstreams: NonEmpty<Arc<Upstream>>,
 ) -> Arc<dyn LoadBalancer> {
     match load_balancing_strategy {
-        LoadBalancingStrategy::PrimaryOnly => Arc::new(PrimaryOnlyLoadBalancer::new(all_upstreams)),
+        LoadBalancingStrategy::PrimaryOnly => Arc::new(PrimaryOnlyLoadBalancer::new(
+            all_upstreams,
+            upstream_health_checks_config,
+        )),
         LoadBalancingStrategy::RoundRobin => todo!(),
         LoadBalancingStrategy::WeightedOrder => todo!(),
     }
