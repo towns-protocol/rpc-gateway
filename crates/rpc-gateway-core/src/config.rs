@@ -1031,14 +1031,14 @@ chains:
         let config_str = r#"
 chains:
   1:
-    block_time_ms: 12000
+    block_time: 13000ms
     upstreams:
       - url: "http://example.com"
 "#;
 
         let config = Config::from_yaml_str(config_str).unwrap();
         let chain = config.chains.get(&1).unwrap();
-        assert_eq!(chain.block_time, Some(Duration::from_millis(12000)));
+        assert_eq!(chain.block_time, Some(Duration::from_millis(13000)));
     }
 
     #[test]

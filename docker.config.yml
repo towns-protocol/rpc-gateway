@@ -38,21 +38,21 @@ logging:
 
 chains:
   1: # Ethereum Mainnet
-    # block_time_ms: 12000
+    # block_time: 12000
     upstreams:
       - url: "http://mainnet:8545"
         timeout: "10s"
         weight: 1
 
   137: # Polygon
-    # block_time_ms: 12000
+    # block_time: 12000
     upstreams:
       - url: "http://polygon:8545"
         timeout: "10s"
         weight: 1
 
   42161: # Arbitrum
-    # block_time_ms: 12000
+    # block_time: 12000
     upstreams:
       - url: "http://arbitrum:8545"
         timeout: "10s"
