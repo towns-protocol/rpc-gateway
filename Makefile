@@ -65,6 +65,12 @@ docker-publish:
 	@echo "Successfully published $(FULL_IMAGE_NAME):$(DOCKER_IMAGE_VERSION) for multiple platforms"
 	@echo "Successfully published $(FULL_IMAGE_NAME):latest for multiple platforms"
 
+helm-build:
+	@echo "Building Helm chart..."
+	cd ./helm && \
+		helm package rpc-gateway && \
+		helm repo index . --url https://whats-good.github.io/rpc-gateway
+
 # Show help
 help:
 	@echo "Available targets:"
