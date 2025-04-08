@@ -122,40 +122,76 @@ tolerations: []
 affinity: {}
 
 # Configuration for rpc-gateway
-config:
-  # server:
-  #   host: "0.0.0.0"
-  #   port: 9090
+# server:
+#   host: "0.0.0.0"
+#   port: 9090
 
-  # loadBalancing:
-  #   type: "weighted_round_robin"
-  #   weightDecay: 0.5
+# loadBalancing:
+#   type: "weighted_round_robin"
+#   weightDecay: 0.5
 
-  # errorHandling:
-  #   type: "retry"
-  #   maxRetries: 3
-  #   retryDelay: "1s"
-  #   jitter: true
+# errorHandling:
+#   type: "retry"
+#   maxRetries: 3
+#   retryDelay: "1s"
+#   jitter: true
 
-  # cache:
-  #   enabled: false
+# cache:
+#   enabled: false
 
-  # logging:
-  #   console:
-  #     enabled: true
+# logging:
+#   console:
+#     enabled: true
 
-  #   file:
-  #     enabled: false
+#   file:
+#     enabled: false
 
-  # chains:
-  #   1: # Ethereum Mainnet
-  #     upstreams:
-  #       - url: "http://mainnet:8545"
-  #         timeout: "10s"
-  #         weight: 1
+# chains:
+#   1: # Ethereum Mainnet
+#     upstreams:
+#       - url: "http://mainnet:8545"
+#         timeout: "10s"
+#         weight: 1
 
 # Environment variables to be set in the container
 env:
   # TODO: turn this into a regular config.rs field,
   - name: RUST_LOG
     value: "rpc_gateway=info,actix_web=info,reqwest=info"
+
+config:
+  server:
+    host: "0.0.0.0"
+    port: 9090
+
+  loadBalancing:
+    strategy: "primary_only"
+
+  errorHandling:
+    type: "retry"
+    maxRetries: 3
+    retryDelay: "1s"
+    jitter: true
+
+  cache:
+    enabled: false
+
+  logging:
+    console:
+      enabled: true
+
+    file:
+      enabled: false
+
+  chains:
+    84532:
+      upstreams:
+        - url: "$BASE_RPC_URL"
+          timeout: "10s"
+          weight: 1
+
+    6524490:
+      upstreams:
+        - url: "$RIVER_RPC_URL"
+          timeout: "10s"
+          weight: 1

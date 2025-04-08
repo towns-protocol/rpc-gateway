@@ -58,7 +58,7 @@ spec:
             {{- toYaml .Values.env | nindent 12 }}
           volumeMounts:
             - name: config
-              mountPath: /etc/rpc-gateway/config.yaml
+              mountPath: /etc/rpc-gateway
           {{- with .Values.volumeMounts }}
             {{- toYaml . | nindent 12 }}
           {{- end }}
