@@ -4,5 +4,5 @@ metadata:
   name: {{ include "rpc-gateway.fullname" . }}-config
   labels: {{- include "rpc-gateway.labels" . | nindent 4 }}
 data:
-  config.yaml: |
+  config.yml: |
     {{- toYaml .Values.config | nindent 4 -}} 
