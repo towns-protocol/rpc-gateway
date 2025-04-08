@@ -19,6 +19,7 @@ repository = "https://github.com/whats-good/rpc-gateway"
 [workspace.dependencies]
 arc-swap = "1.7.0"
 clap = { version = "4.4", features = ["derive"] }
+duration-str = "0.17.0"
 moka = { version = "0.12.10", features = ["future"] }
 nonempty = "0.11.0"
 rand = "0.9.0"

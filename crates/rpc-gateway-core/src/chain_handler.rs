@@ -33,10 +33,10 @@ impl ChainHandler {
             ChainRequestPool::new(chain_config.clone(), error_handling, load_balancing);
 
         let cache = if cache_config.enabled {
-            if let Some(block_time) = chain_config.get_block_time() {
+            if let Some(block_time) = chain_config.block_time {
                 Some(RpcCache::new(cache_config.capacity, block_time))
             } else {
-                warn!(
+                error!(
                     chain = ?chain_config.chain,
                     "Cache enabled but no block time available. Disabling cache."
                 );

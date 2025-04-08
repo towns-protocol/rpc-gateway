@@ -16,3 +16,4 @@
 [ ] Health checks should run with a task manager
 [ ] Add graceful shutdowns
 [ ] Update all duration configs to use the default format: i.e "10s" or "100ms" etc
+[ ] Stop depending on the RUST_LOG environment variable. But do allow it to take effect if set.

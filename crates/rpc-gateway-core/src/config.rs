@@ -1,4 +1,5 @@
 use alloy_chains::Chain;
+use duration_str::deserialize_duration;
 use nonempty::NonEmpty;
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_yaml;
@@ -35,14 +36,14 @@ pub struct ServerConfig {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "strategy", rename_all = "snake_case")]
 pub enum LoadBalancingStrategy {
+    PrimaryOnly,
     RoundRobin,
     WeightedOrder,
-    PrimaryOnly,
 }
 
 impl Default for LoadBalancingStrategy {
     fn default() -> Self {
-        default_load_balancing_strategy()
+        LoadBalancingStrategy::PrimaryOnly
     }
 }
 
@@ -53,7 +54,10 @@ pub enum ErrorHandlingConfig {
         #[serde(default = "default_max_retries")]
         #[serde(deserialize_with = "validate_max_retries")]
         max_retries: u32,
-        #[serde(default = "default_retry_delay", with = "duration_serde")]
+        #[serde(
+            default = "default_retry_delay",
+            deserialize_with = "deserialize_duration"
+        )]
         retry_delay: Duration,
         #[serde(default = "default_retry_jitter")]
         jitter: bool,
@@ -61,13 +65,19 @@ pub enum ErrorHandlingConfig {
     FailFast {
         #[serde(default = "default_error_threshold")]
         error_threshold: u32,
-        #[serde(default = "default_error_window", with = "duration_serde")]
+        #[serde(
+            default = "default_error_window",
+            deserialize_with = "deserialize_duration"
+        )]
         error_window: Duration,
     },
     CircuitBreaker {
         #[serde(default = "default_failure_threshold")]
         failure_threshold: u32,
-        #[serde(default = "default_reset_timeout", with = "duration_serde")]
+        #[serde(
+            default = "default_reset_timeout",
+            deserialize_with = "deserialize_duration"
+        )]
         reset_timeout: Duration,
         #[serde(default = "default_half_open_requests")]
         half_open_requests: u32,
@@ -100,17 +110,24 @@ pub struct ChainConfig {
         serialize_with = "serialize_nonempty_upstreams"
     )]
     pub upstreams: NonEmpty<UpstreamConfig>,
-    #[serde(default)]
-    block_time_ms: Option<u64>,
+
+    #[serde(default, deserialize_with = "deserialize_option_duration")]
+    pub block_time: Option<Duration>,
 }
 
-impl ChainConfig {
-    pub fn get_block_time(&self) -> Option<Duration> {
-        if let Some(block_time_ms) = self.block_time_ms {
-            Some(Duration::from_millis(block_time_ms))
-        } else {
-            self.chain.average_blocktime_hint()
+fn deserialize_option_duration<'de, D>(deserializer: D) -> Result<Option<Duration>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    // This will deserialize the value into an Option<String>
+    // If the value is null, we get None; otherwise, we parse it
+    let opt = Option::<String>::deserialize(deserializer)?;
+    match opt {
+        Some(s) => {
+            let duration = deserialize_duration(serde::de::IntoDeserializer::into_deserializer(s))?;
+            Ok(Some(duration))
         }
+        None => Ok(None),
     }
 }
 
@@ -118,11 +135,22 @@ impl ChainConfig {
 pub struct UpstreamConfig {
     #[serde(with = "url_serde")]
     pub url: Url,
-    #[serde(default = "default_timeout", with = "duration_serde")]
+    #[serde(default = "default_timeout", deserialize_with = "validate_timeout")]
     pub timeout: Duration,
     #[serde(default = "default_weight")]
     #[serde(deserialize_with = "validate_weight")]
     pub weight: u32,
+}
+
+fn validate_timeout<'de, D>(deserializer: D) -> Result<Duration, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let duration = deserialize_duration(deserializer)?;
+    if duration.is_zero() {
+        return Err(serde::de::Error::custom("timeout cannot be zero"));
+    }
+    Ok(duration)
 }
 
 fn validate_weight<'de, D>(deserializer: D) -> Result<u32, D::Error>
@@ -236,10 +264,6 @@ fn default_host() -> String {
 
 fn default_port() -> u16 {
     9090
-}
-
-fn default_load_balancing_strategy() -> LoadBalancingStrategy {
-    LoadBalancingStrategy::PrimaryOnly
 }
 
 fn default_error_handling_config() -> ErrorHandlingConfig {
@@ -372,7 +396,7 @@ impl Default for Config {
     fn default() -> Self {
         Self {
             server: ServerConfig::default(),
-            load_balancing: default_load_balancing_strategy(),
+            load_balancing: LoadBalancingStrategy::default(),
             error_handling: ErrorHandlingConfig::default(),
             logging: LoggingConfig::default(),
             cache: CacheConfig::default(),
@@ -441,7 +465,7 @@ impl Default for ChainConfig {
                 timeout: Duration::from_secs(10),
                 weight: 1,
             }),
-            block_time_ms: None,
+            block_time: None,
         }
     }
 }
@@ -522,35 +546,6 @@ mod url_serde {
     }
 }
 
-mod duration_serde {
-    use super::*;
-    use serde::{Deserializer, Serializer};
-
-    pub fn serialize<S>(duration: &Duration, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        serializer.serialize_str(&format!("{}s", duration.as_secs()))
-    }
-
-    pub fn deserialize<'de, D>(deserializer: D) -> Result<Duration, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        let s = String::deserialize(deserializer)?;
-        if let Some(seconds) = s.strip_suffix('s') {
-            if let Ok(secs) = seconds.parse::<u64>() {
-                if secs > 0 {
-                    return Ok(Duration::from_secs(secs));
-                }
-            }
-        }
-        Err(serde::de::Error::custom(
-            "Duration must be a positive number followed by 's'",
-        ))
-    }
-}
-
 mod chain_map_serde {
     use super::*;
     use serde::{Deserializer, Serializer};
@@ -577,6 +572,7 @@ mod chain_map_serde {
         for (k, mut v) in string_map {
             let key = u64::from_str(&k).map_err(serde::de::Error::custom)?;
             v.chain = Chain::from_id(key);
+            v.block_time = v.block_time.or(v.chain.average_blocktime_hint());
             map.insert(key, v);
         }
         Ok(map)
@@ -830,10 +826,8 @@ chains:
         let result = Config::from_yaml_str(config_str);
         assert!(result.is_err());
         let err = result.unwrap_err();
-        assert!(
-            err.to_string()
-                .contains("Duration must be a positive number followed by 's'")
-        );
+        // TODO: give better error message. describe the failing field and value.
+        assert!(err.to_string().contains("invalid duration"));
     }
 
     #[test]
@@ -922,10 +916,7 @@ chains:
         let result = Config::from_yaml_str(config_str);
         assert!(result.is_err());
         let err = result.unwrap_err();
-        assert!(
-            err.to_string()
-                .contains("Duration must be a positive number followed by 's'")
-        );
+        assert!(err.to_string().contains("timeout cannot be zero"));
     }
 
     #[test]
@@ -1047,11 +1038,73 @@ chains:
 
         let config = Config::from_yaml_str(config_str).unwrap();
         let chain = config.chains.get(&1).unwrap();
-        assert_eq!(chain.block_time_ms, Some(12000));
+        assert_eq!(chain.block_time, Some(Duration::from_millis(12000)));
     }
 
     #[test]
     fn test_chain_config_without_block_time() {
+        let config_str = r#"
+chains:
+  999888777:
+    upstreams:
+      - url: "http://example.com"
+"#;
+
+        let config = Config::from_yaml_str(config_str).unwrap();
+        let chain = config.chains.get(&999888777).unwrap();
+        assert_eq!(chain.block_time, None);
+    }
+
+    #[test]
+    fn test_get_block_time_config_override() {
+        let mut chain_config = ChainConfig::default();
+        chain_config.block_time = Some(Duration::from_millis(5000)); // 5 seconds
+        assert_eq!(chain_config.block_time, Some(Duration::from_millis(5000)));
+    }
+
+    #[test]
+    fn test_get_block_time_alloy_fallback() {
+        let config_str = r#"
+chains:
+  1:
+    upstreams:
+      - url: "http://example.com"
+  137:
+    upstreams:
+      - url: "http://example.com"
+  56:
+    upstreams:
+      - url: "http://example.com"
+"#;
+
+        let config = Config::from_yaml_str(config_str).unwrap();
+
+        let chain_config = config.chains.get(&1).unwrap();
+        assert_eq!(chain_config.block_time, Some(Duration::from_millis(12000))); // 12 seconds
+
+        let chain_config = config.chains.get(&137).unwrap();
+        assert_eq!(chain_config.block_time, Some(Duration::from_millis(2100))); // 2 seconds
+
+        let chain_config = config.chains.get(&56).unwrap();
+        assert_eq!(chain_config.block_time, Some(Duration::from_millis(3000))); // 3 seconds
+    }
+
+    #[test]
+    fn test_get_block_time_priority() {
+        let config_str = r#"
+chains:
+  1:
+    block_time: "5s"
+    upstreams:
+      - url: "http://example.com"
+"#;
+
+        let config = Config::from_yaml_str(config_str).unwrap();
+        let chain_config = config.chains.get(&1).unwrap();
+
+        // Config should take precedence over alloy chain's value
+        assert_eq!(chain_config.block_time, Some(Duration::from_millis(5000)));
+
         let config_str = r#"
 chains:
   1:
@@ -1060,69 +1113,17 @@ chains:
 "#;
 
         let config = Config::from_yaml_str(config_str).unwrap();
-        let chain = config.chains.get(&1).unwrap();
-        assert_eq!(chain.block_time_ms, None);
-    }
+        let chain_config = config.chains.get(&1).unwrap();
 
-    #[test]
-    fn test_get_block_time_config_override() {
-        let mut chain_config = ChainConfig::default();
-        chain_config.block_time_ms = Some(5000); // 5 seconds
-        assert_eq!(
-            chain_config.get_block_time(),
-            Some(Duration::from_millis(5000))
-        );
-    }
-
-    #[test]
-    fn test_get_block_time_alloy_fallback() {
-        let mut chain_config = ChainConfig::default();
-        chain_config.block_time_ms = None;
-        chain_config.chain = Chain::from_id(1); // Ethereum Mainnet
-        assert_eq!(
-            chain_config.get_block_time(),
-            Some(Duration::from_millis(12000))
-        ); // 12 seconds
-
-        chain_config.chain = Chain::from_id(137); // Polygon
-        assert_eq!(
-            chain_config.get_block_time(),
-            Some(Duration::from_millis(2100))
-        ); // 2 seconds
-
-        chain_config.chain = Chain::from_id(56); // BSC
-        assert_eq!(
-            chain_config.get_block_time(),
-            Some(Duration::from_millis(3000))
-        ); // 3 seconds
-    }
-
-    #[test]
-    fn test_get_block_time_priority() {
-        let mut chain_config = ChainConfig::default();
-        chain_config.chain = Chain::from_id(1); // Ethereum Mainnet
-
-        // Config should take precedence over alloy chain's value
-        chain_config.block_time_ms = Some(5000); // 5 seconds
-        assert_eq!(
-            chain_config.get_block_time(),
-            Some(Duration::from_millis(5000))
-        );
-
-        // When config is None, should fall back to alloy chain's value
-        chain_config.block_time_ms = None;
-        assert_eq!(
-            chain_config.get_block_time(),
-            Some(Duration::from_millis(12000))
-        );
+        assert_eq!(chain_config.block_time, Some(Duration::from_millis(12000)));
     }
 
     #[test]
     fn test_get_block_time_unknown_chain() {
         let mut chain_config = ChainConfig::default();
         chain_config.chain = Chain::from_id(999999); // Unknown chain
-        chain_config.block_time_ms = None;
-        assert_eq!(chain_config.get_block_time(), None);
+        chain_config.block_time = None;
+        assert_eq!(chain_config.block_time, None);
     }
 
     #[test]
