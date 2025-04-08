@@ -24,7 +24,7 @@ dev:
 	@echo "Starting development server with file watching..."
 	@echo "Press Ctrl+C to stop"
 	@echo "----------------------------------------"
-	@echo "Server will be available at: http://localhost:9090"
+	@echo "Server will be available at: http://localhost:8080"
 	@echo "----------------------------------------"
 	@echo "Logs will be written to: logs/rpc-gateway.log"
 	@echo "----------------------------------------"

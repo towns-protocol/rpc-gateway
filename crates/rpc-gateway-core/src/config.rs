@@ -263,7 +263,7 @@ fn default_host() -> String {
 }
 
 fn default_port() -> u16 {
-    9090
+    8080
 }
 
 fn default_error_handling_config() -> ErrorHandlingConfig {
@@ -663,7 +663,7 @@ mod tests {
     fn test_default_config() {
         let config = Config::default();
         assert_eq!(config.server.host, "127.0.0.1");
-        assert_eq!(config.server.port, 9090);
+        assert_eq!(config.server.port, 8080);
         assert!(matches!(
             config.load_balancing,
             LoadBalancingStrategy::PrimaryOnly
