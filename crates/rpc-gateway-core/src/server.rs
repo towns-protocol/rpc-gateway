@@ -61,19 +61,12 @@ async fn readiness_probe(gateway: web::Data<Gateway>) -> Result<String> {
     }
 }
 
-pub async fn run(config: Config) -> std::io::Result<()> {
-    logging::init_logging(&config);
-
+pub async fn run(gateway: Gateway, config: Config) -> std::io::Result<()> {
     info!(
         host = %config.server.host,
         port = %config.server.port,
         "Starting server"
     );
-
-    let gateway = Gateway::new(config.clone());
-    debug!(gateway = ?gateway, "Created gateway");
-
-    gateway.start_health_check_loop();
 
     HttpServer::new(move || {
         App::new()

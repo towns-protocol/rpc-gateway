@@ -44,7 +44,7 @@ impl Gateway {
     }
 
     #[instrument(skip(self))]
-    pub fn start_health_check_loop(&self) {
+    pub fn start_health_check_loops(&self) {
         for handler in self.handlers.values() {
             handler.start_health_check_loop();
         }
