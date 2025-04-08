@@ -5,6 +5,10 @@ server:
 load_balancing:
   strategy: "primary_only"
 
+upstream_health_checks:
+  enabled: true
+  interval: "5m"
+
 error_handling:
   type: "retry"
   max_retries: 3

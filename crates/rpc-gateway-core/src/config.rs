@@ -15,6 +15,8 @@ pub struct Config {
     #[serde(default)]
     pub load_balancing: LoadBalancingStrategy,
     #[serde(default)]
+    pub upstream_health_checks: UpstreamHealthChecksConfig,
+    #[serde(default)]
     pub error_handling: ErrorHandlingConfig,
     #[serde(default)]
     pub logging: LoggingConfig,
@@ -224,13 +226,26 @@ pub struct CacheConfig {
     pub capacity: u64,
 }
 
-// Default functions for new fields
-fn default_weight_decay() -> f64 {
-    0.5
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UpstreamHealthChecksConfig {
+    #[serde(default = "default_health_checks_enabled")]
+    pub enabled: bool,
+    #[serde(
+        default = "default_health_checks_interval",
+        deserialize_with = "deserialize_duration_with_default"
+    )]
+    pub interval: Duration,
 }
 
-fn default_connection_multiplier() -> f64 {
-    1.5
+fn deserialize_duration_with_default<'de, D>(deserializer: D) -> Result<Duration, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let opt = Option::<String>::deserialize(deserializer)?;
+    match opt {
+        Some(s) => deserialize_duration(serde::de::IntoDeserializer::into_deserializer(s)),
+        None => Ok(default_health_checks_interval()),
+    }
 }
 
 fn default_retry_jitter() -> bool {
@@ -359,6 +374,15 @@ fn default_cache_capacity() -> u64 {
     10_000 // Default cache capacity of 10,000 entries
 }
 
+// Default functions for health checks
+fn default_health_checks_enabled() -> bool {
+    true
+}
+
+fn default_health_checks_interval() -> Duration {
+    Duration::from_secs(300) // 5 minutes
+}
+
 impl Config {
     pub fn from_yaml_str(s: &str) -> Result<Self, Box<dyn std::error::Error>> {
         let mut config: Config = serde_yaml::from_str(s)?;
@@ -397,6 +421,7 @@ impl Default for Config {
         Self {
             server: ServerConfig::default(),
             load_balancing: LoadBalancingStrategy::default(),
+            upstream_health_checks: UpstreamHealthChecksConfig::default(),
             error_handling: ErrorHandlingConfig::default(),
             logging: LoggingConfig::default(),
             cache: CacheConfig::default(),
@@ -475,6 +500,15 @@ impl Default for CacheConfig {
         Self {
             enabled: default_cache_enabled(),
             capacity: default_cache_capacity(),
+        }
+    }
+}
+
+impl Default for UpstreamHealthChecksConfig {
+    fn default() -> Self {
+        Self {
+            enabled: default_health_checks_enabled(),
+            interval: default_health_checks_interval(),
         }
     }
 }
@@ -1189,5 +1223,96 @@ chains:
         assert_eq!(config.server.host, "localhost");
         assert_eq!(config.server.port, 8080);
         assert_eq!(config.chains.get(&1).unwrap().upstreams.iter().count(), 1);
+    }
+
+    #[test]
+    fn test_upstream_health_checks_default() {
+        let config = Config::default();
+        assert!(config.upstream_health_checks.enabled);
+        assert_eq!(
+            config.upstream_health_checks.interval,
+            Duration::from_secs(300)
+        );
+    }
+
+    #[test]
+    fn test_upstream_health_checks_from_yaml() {
+        let config_str = r#"
+upstream_health_checks:
+  enabled: true
+  interval: "1m"
+
+chains:
+  1:
+    upstreams:
+      - url: "http://example.com"
+"#;
+
+        let config = Config::from_yaml_str(config_str).unwrap();
+        assert!(config.upstream_health_checks.enabled);
+        assert_eq!(
+            config.upstream_health_checks.interval,
+            Duration::from_secs(60)
+        );
+    }
+
+    #[test]
+    fn test_upstream_health_checks_optional_interval() {
+        let config_str = r#"
+upstream_health_checks:
+  enabled: true
+
+chains:
+  1:
+    upstreams:
+      - url: "http://example.com"
+"#;
+
+        let config = Config::from_yaml_str(config_str).unwrap();
+        assert!(config.upstream_health_checks.enabled);
+        assert_eq!(
+            config.upstream_health_checks.interval,
+            Duration::from_secs(300)
+        );
+    }
+
+    #[test]
+    fn test_upstream_health_checks_disabled() {
+        let config_str = r#"
+upstream_health_checks:
+  enabled: false
+  interval: "1m"
+
+chains:
+  1:
+    upstreams:
+      - url: "http://example.com"
+"#;
+
+        let config = Config::from_yaml_str(config_str).unwrap();
+        assert!(!config.upstream_health_checks.enabled);
+        assert_eq!(
+            config.upstream_health_checks.interval,
+            Duration::from_secs(60)
+        );
+    }
+
+    #[test]
+    fn test_upstream_health_checks_invalid_duration() {
+        let config_str = r#"
+upstream_health_checks:
+  enabled: true
+  interval: "invalid duration"
+
+chains:
+  1:
+    upstreams:
+      - url: "http://example.com"
+"#;
+
+        let result = Config::from_yaml_str(config_str);
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(err.to_string().contains("invalid duration"));
     }
 }
