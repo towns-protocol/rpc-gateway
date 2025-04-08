@@ -69,7 +69,7 @@ helm-build:
 	@echo "Building Helm chart..."
 	cd ./helm && \
 		helm package rpc-gateway && \
-		helm repo index . --url https://whats-good.github.io/rpc-gateway
+		helm repo index . --url https://whats-good.github.io/rpc-gateway/helm
 
 helm-publish:
 	@echo "Publishing Helm chart..."
