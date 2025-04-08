@@ -670,7 +670,7 @@ mod tests {
         assert_eq!(config.server.port, 9090);
         assert!(matches!(
             config.load_balancing,
-            LoadBalancingStrategy::WeightedOrder
+            LoadBalancingStrategy::PrimaryOnly
         ));
         assert!(matches!(
             config.error_handling,
