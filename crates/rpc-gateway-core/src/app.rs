@@ -15,7 +15,8 @@ pub async fn run() {
     let gateway = Gateway::new(config.clone());
     debug!(gateway = ?gateway, "Created gateway");
 
-    gateway.start_health_check_loops();
+    gateway.run_upstream_health_checks().await;
+    gateway.start_upstream_health_check_loops();
 
     server::run(gateway, config)
         .await

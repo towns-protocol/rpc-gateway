@@ -13,8 +13,8 @@ use crate::request_pool::ChainRequestPool;
 
 #[derive(Debug, Clone)]
 pub struct ChainHandler {
-    chain_config: Arc<ChainConfig>,
-    request_pool: ChainRequestPool,
+    pub chain_config: Arc<ChainConfig>,
+    pub request_pool: ChainRequestPool,
     cache: Option<RpcCache>,
 }
 
@@ -59,16 +59,6 @@ impl ChainHandler {
             request_pool,
             cache,
         }
-    }
-
-    #[instrument(skip(self))]
-    pub fn start_health_check_loop(&self) {
-        self.request_pool.start_health_check_loop();
-    }
-
-    #[instrument(skip(self))]
-    pub fn liveness_probe(&self) -> bool {
-        self.request_pool.liveness_probe()
     }
 
     #[instrument(skip(self, request))]

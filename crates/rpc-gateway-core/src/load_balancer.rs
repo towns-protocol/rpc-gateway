@@ -1,4 +1,4 @@
-use std::{fmt, sync::Arc, time::Duration};
+use std::{fmt, sync::Arc};
 
 use arc_swap::ArcSwap;
 use futures::future::join_all;
@@ -13,7 +13,7 @@ use crate::{
 
 /// Tracks upstream health and exposes the healthy set.
 #[derive(Debug)]
-struct HealthCheckManager {
+pub struct HealthCheckManager {
     all_upstreams: NonEmpty<Arc<Upstream>>,
     config: UpstreamHealthChecksConfig,
     healthy_upstreams: ArcSwap<Vec<Arc<Upstream>>>,
@@ -21,17 +21,10 @@ struct HealthCheckManager {
 
 impl HealthCheckManager {
     pub fn new(all_upstreams: NonEmpty<Arc<Upstream>>, config: UpstreamHealthChecksConfig) -> Self {
-        match config.enabled {
-            true => Self {
-                healthy_upstreams: ArcSwap::from_pointee(vec![]),
-                all_upstreams,
-                config,
-            },
-            false => Self {
-                healthy_upstreams: ArcSwap::from_pointee(all_upstreams.clone().into()),
-                all_upstreams,
-                config,
-            },
+        Self {
+            healthy_upstreams: ArcSwap::from_pointee(vec![]),
+            all_upstreams,
+            config,
         }
     }
 
@@ -40,7 +33,7 @@ impl HealthCheckManager {
         let futures = self.all_upstreams.iter().map(|upstream| {
             let upstream = Arc::clone(upstream);
             async move {
-                let is_healthy = upstream.readiness_probe().await;
+                let is_healthy = upstream.health_check().await;
                 (upstream, is_healthy)
             }
         });
@@ -54,6 +47,25 @@ impl HealthCheckManager {
         self.healthy_upstreams.store(Arc::new(healthy));
     }
 
+    // TODO: use a task manager here for graceful shutdown
+    #[instrument()]
+    pub fn start_upstream_health_check_loop(manager: Arc<HealthCheckManager>) {
+        let sleep_duration = manager.config.interval;
+
+        // TODO: consider adding the chain here to help with debugging
+
+        task::spawn(async move {
+            loop {
+                manager.run_health_checks().await;
+                debug!(
+                    "Health checks loop sleeping for {} seconds",
+                    sleep_duration.as_secs()
+                );
+                sleep(sleep_duration).await;
+            }
+        });
+    }
+
     /// Returns a snapshot of currently healthy upstreams.
     pub fn healthy_upstreams(&self) -> Arc<Vec<Arc<Upstream>>> {
         self.healthy_upstreams.load_full()
@@ -63,8 +75,7 @@ impl HealthCheckManager {
 /// A basic load balancer interface.
 pub trait LoadBalancer: fmt::Debug + Send + Sync {
     fn select_upstream(&self) -> Option<Arc<Upstream>>;
-    fn start_health_check_loop(&self);
-    fn liveness_probe(&self) -> bool;
+    fn get_health_check_manager(&self) -> Arc<HealthCheckManager>;
 }
 
 /// Balancer that always selects a single primary upstream.
@@ -101,23 +112,8 @@ impl LoadBalancer for PrimaryOnlyLoadBalancer {
         upstreams.first().cloned()
     }
 
-    // TODO: use a task manager here for graceful shutdown
-    #[instrument(skip(self))]
-    fn start_health_check_loop(&self) {
-        let manager = Arc::clone(&self.health_check_manager);
-        let sleep_duration = self.health_check_manager.config.interval;
-
-        task::spawn(async move {
-            loop {
-                manager.run_health_checks().await;
-                debug!("Sleeping for {} seconds", sleep_duration.as_secs());
-                sleep(sleep_duration).await;
-            }
-        });
-    }
-
-    fn liveness_probe(&self) -> bool {
-        self.select_upstream().is_some()
+    fn get_health_check_manager(&self) -> Arc<HealthCheckManager> {
+        Arc::clone(&self.health_check_manager)
     }
 }
 

@@ -228,10 +228,10 @@ pub struct CacheConfig {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UpstreamHealthChecksConfig {
-    #[serde(default = "default_health_checks_enabled")]
+    #[serde(default = "default_upstream_liveness_enabled")]
     pub enabled: bool,
     #[serde(
-        default = "default_health_checks_interval",
+        default = "default_upstream_liveness_interval",
         deserialize_with = "deserialize_duration_with_default"
     )]
     pub interval: Duration,
@@ -244,7 +244,7 @@ where
     let opt = Option::<String>::deserialize(deserializer)?;
     match opt {
         Some(s) => deserialize_duration(serde::de::IntoDeserializer::into_deserializer(s)),
-        None => Ok(default_health_checks_interval()),
+        None => Ok(default_upstream_liveness_interval()),
     }
 }
 
@@ -375,11 +375,11 @@ fn default_cache_capacity() -> u64 {
 }
 
 // Default functions for health checks
-fn default_health_checks_enabled() -> bool {
+fn default_upstream_liveness_enabled() -> bool {
     true
 }
 
-fn default_health_checks_interval() -> Duration {
+fn default_upstream_liveness_interval() -> Duration {
     Duration::from_secs(300) // 5 minutes
 }
 
@@ -507,8 +507,8 @@ impl Default for CacheConfig {
 impl Default for UpstreamHealthChecksConfig {
     fn default() -> Self {
         Self {
-            enabled: default_health_checks_enabled(),
-            interval: default_health_checks_interval(),
+            enabled: default_upstream_liveness_enabled(),
+            interval: default_upstream_liveness_interval(),
         }
     }
 }

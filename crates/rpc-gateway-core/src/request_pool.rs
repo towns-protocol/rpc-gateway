@@ -15,7 +15,7 @@ use tracing::{debug, error, info, instrument, warn};
 pub struct ChainRequestPool {
     chain_config: Arc<ChainConfig>,
     error_handling: Arc<ErrorHandlingConfig>,
-    load_balancer: Arc<dyn LoadBalancer>,
+    pub load_balancer: Arc<dyn LoadBalancer>,
 }
 
 impl ChainRequestPool {
@@ -50,16 +50,6 @@ impl ChainRequestPool {
                 upstreams,
             ),
         }
-    }
-
-    #[instrument(skip(self))]
-    pub fn start_health_check_loop(&self) {
-        self.load_balancer.start_health_check_loop();
-    }
-
-    #[instrument(skip(self))]
-    pub fn liveness_probe(&self) -> bool {
-        self.load_balancer.liveness_probe()
     }
 
     #[instrument(skip(self, request))]

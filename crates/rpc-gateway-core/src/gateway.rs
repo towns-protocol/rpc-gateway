@@ -1,5 +1,6 @@
-use crate::config::Config;
+use crate::{config::Config, load_balancer::HealthCheckManager};
 use alloy_json_rpc::{Request, Response, ResponsePayload};
+use futures::future::join_all;
 use serde_json::Value;
 use std::collections::HashMap;
 use tracing::{debug, error, info, instrument, warn};
@@ -17,6 +18,7 @@ impl Gateway {
         info!(config = ?config, "Creating new Gateway");
         let mut handlers = HashMap::new();
 
+        // TODO: make sure this chains hashmap is not empty
         for (chain_id, chain_config) in &config.chains {
             let handler = ChainHandler::new(
                 chain_config.clone(),
@@ -32,29 +34,43 @@ impl Gateway {
     }
 
     #[instrument(skip(self))]
-    pub fn liveness_probe(&self) -> bool {
-        // TODO: should this fail if even a single chain is not working?
-        self.handlers
-            .values()
-            .all(|handler| handler.liveness_probe())
-    }
-
-    #[instrument(skip(self))]
-    pub fn readiness_probe(&self) -> bool {
-        self.liveness_probe()
-    }
-
-    #[instrument(skip(self))]
-    pub fn start_health_check_loops(&self) {
+    pub fn start_upstream_health_check_loops(&self) {
         if !self.config.upstream_health_checks.enabled {
-            warn!("Health checks are disabled");
+            warn!("Upstream health checks are disabled. Not starting health check loops.");
             return;
         }
 
-        debug!("Starting health check loops");
+        debug!("Starting upstream health check loops");
         for handler in self.handlers.values() {
-            handler.start_health_check_loop();
+            // TODO: use a task manager here for graceful shutdown
+            debug!(
+                "Starting upstream health check loop for chain: {}",
+                handler.chain_config.chain
+            );
+
+            let health_check_manager = handler
+                .request_pool
+                .load_balancer
+                .get_health_check_manager();
+
+            HealthCheckManager::start_upstream_health_check_loop(health_check_manager);
         }
+    }
+
+    #[instrument(skip(self))]
+    pub async fn run_upstream_health_checks(&self) {
+        let futures = self.handlers.values().map(|handler| {
+            let manager = handler
+                .request_pool
+                .load_balancer
+                .get_health_check_manager();
+
+            async move {
+                manager.run_health_checks().await;
+            }
+        });
+
+        join_all(futures).await;
     }
 
     #[instrument(skip(self, request), fields(chain_id = %chain_id))]

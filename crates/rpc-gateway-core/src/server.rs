@@ -42,23 +42,12 @@ async fn index(
 }
 
 async fn liveness_probe(gateway: web::Data<Gateway>) -> Result<String> {
-    if gateway.liveness_probe() {
-        Ok("OK".to_string())
-    } else {
-        Err(actix_web::error::ErrorInternalServerError(
-            "Gateway is not healthy",
-        ))
-    }
+    // TODO: implement real liveness probes.
+    Ok("OK".to_string())
 }
 
 async fn readiness_probe(gateway: web::Data<Gateway>) -> Result<String> {
-    if gateway.readiness_probe() {
-        Ok("OK".to_string())
-    } else {
-        Err(actix_web::error::ErrorInternalServerError(
-            "Gateway is not ready",
-        ))
-    }
+    Ok("OK".to_string())
 }
 
 pub async fn run(gateway: Gateway, config: Config) -> std::io::Result<()> {
