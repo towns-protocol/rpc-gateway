@@ -9,36 +9,36 @@ upstream_health_checks:
   enabled: true
   interval: "5m"
 
-error_handling:
-  type: "retry"
-  max_retries: 3
-  retry_delay: "1s"
-  jitter: true
+# error_handling:
+# type: "retry"
+# max_retries: 3
+# retry_delay: "1s"
+# jitter: true
 
 cache:
   enabled: true
 
 logging:
-  console:
-    enabled: true
-    level: "debug"
-    format: "text"
-    include_target: true
-    include_thread_ids: true
-    include_thread_names: true
-    include_file: true
-    include_line_number: true
-  file:
-    enabled: false
-    level: "info"
-    format: "json"
-    path: "logs/rpc-gateway.log"
-    rotation: "daily"
-    include_target: true
-    include_thread_ids: true
-    include_thread_names: true
-    include_file: true
-    include_line_number: true
+  # console:
+  #   enabled: true
+  #   level: "debug"
+  #   format: "text"
+  #   include_target: true
+  #   include_thread_ids: true
+  #   include_thread_names: true
+  #   include_file: true
+  #   include_line_number: true
+  # file:
+  #   enabled: false
+  #   level: "info"
+  #   format: "json"
+  #   path: "logs/rpc-gateway.log"
+  #   rotation: "daily"
+  #   include_target: true
+  #   include_thread_ids: true
+  #   include_thread_names: true
+  #   include_file: true
+  #   include_line_number: true
 
 chains:
   1:

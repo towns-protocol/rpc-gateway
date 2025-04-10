@@ -64,15 +64,7 @@ pub enum ErrorHandlingConfig {
         #[serde(default = "default_retry_jitter")]
         jitter: bool,
     },
-    FailFast {
-        #[serde(default = "default_error_threshold")]
-        error_threshold: u32,
-        #[serde(
-            default = "default_error_window",
-            deserialize_with = "deserialize_duration"
-        )]
-        error_window: Duration,
-    },
+    FailFast,
     CircuitBreaker {
         #[serde(default = "default_failure_threshold")]
         failure_threshold: u32,
@@ -282,11 +274,7 @@ fn default_port() -> u16 {
 }
 
 fn default_error_handling_config() -> ErrorHandlingConfig {
-    ErrorHandlingConfig::Retry {
-        max_retries: default_max_retries(),
-        retry_delay: default_retry_delay(),
-        jitter: default_retry_jitter(),
-    }
+    ErrorHandlingConfig::FailFast
 }
 
 fn default_max_retries() -> u32 {
@@ -347,15 +335,15 @@ fn default_file_rotation() -> String {
 }
 
 fn default_include_target() -> bool {
-    true
+    false
 }
 
 fn default_include_thread_ids() -> bool {
-    true
+    false
 }
 
 fn default_include_thread_names() -> bool {
-    true
+    false
 }
 
 fn default_include_file() -> bool {
