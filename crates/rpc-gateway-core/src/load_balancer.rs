@@ -33,7 +33,7 @@ impl HealthCheckManager {
         let futures = self.all_upstreams.iter().map(|upstream| {
             let upstream = Arc::clone(upstream);
             async move {
-                let is_healthy = upstream.health_check().await;
+                let is_healthy = upstream.readiness_probe().await;
                 (upstream, is_healthy)
             }
         });

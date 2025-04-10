@@ -18,7 +18,6 @@ build:
 	cargo build --release
 
 # Set environment variables only for the dev command
-dev: export RUST_LOG = rpc_gateway=debug,actix_web=info,reqwest=info
 dev: export RUST_BACKTRACE = 1
 dev:
 	@echo "Starting development server with file watching..."

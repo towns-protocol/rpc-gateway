@@ -157,6 +157,5 @@ affinity: {}
 
 # Environment variables to be set in the container
 env:
-  # TODO: turn this into a regular config.rs field,
-  - name: RUST_LOG
-    value: "rpc_gateway=info,actix_web=info,reqwest=info"
+  # - name: RUST_BACKTRACE
+  #   value: "1"
