@@ -18,6 +18,7 @@ repository = "https://github.com/whats-good/rpc-gateway"
 
 [workspace.dependencies]
 arc-swap = "1.7.0"
+async-trait = "0.1"
 clap = { version = "4.4", features = ["derive"] }
 duration-str = "0.17.0"
 moka = { version = "0.12.10", features = ["future"] }
@@ -27,6 +28,7 @@ futures = "0.3.31"
 reqwest = { version = "0.12.15", features = ["json"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
+serde_yaml = "0.9"
 thiserror = { version = "2.0.12", features = ["std"] }
 tokio = { version = "1.44.2", features = ["full"] }
 toml = "0.8"
@@ -37,6 +39,6 @@ tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
 url = "2.5"
 actix-web = "4.4"
 alloy-chains = "0.2.0"
-alloy-json-rpc = "0.14.0"
-alloy-primitives = { version = "1.0.0", features = ["std", "serde", "map"] }
-anvil = { git = "https://github.com/foundry-rs/foundry", package = "anvil-core" }
+anvil-core = { git = "https://github.com/foundry-rs/foundry", package = "anvil-core" }
+anvil-rpc = { git = "https://github.com/foundry-rs/foundry", package = "anvil-rpc" }
+anvil-server = { git = "https://github.com/foundry-rs/foundry", package = "anvil-server" }
