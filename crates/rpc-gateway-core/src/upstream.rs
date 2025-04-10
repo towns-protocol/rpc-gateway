@@ -2,7 +2,6 @@ use crate::config::UpstreamConfig;
 use alloy_chains::Chain;
 use alloy_json_rpc::{Id, Request, Response, ResponsePayload};
 use alloy_primitives::{ChainId, U64};
-use alloy_rpc_types::pubsub::Params;
 use reqwest::Client;
 use serde_json::Value;
 use std::time::Duration;
@@ -50,7 +49,7 @@ impl Upstream {
                 "Attempting readiness check"
             );
 
-            let request = Request::new("eth_chainId", Id::Number(1), Params::None);
+            let request = Request::new("eth_chainId", Id::Number(1), Value::Null);
 
             let response = match self
                 .client
