@@ -31,11 +31,12 @@ thiserror = { version = "2.0.12", features = ["std"] }
 tokio = { version = "1.44.2", features = ["full"] }
 toml = "0.8"
 tracing = "0.1"
-tracing-actix-web = "0.7"
+tracing-actix-web = "0.7.18"
 tracing-appender = { version = "0.2" }
 tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
 url = "2.5"
 actix-web = "4.4"
-alloy-chains = "0.1"
-alloy-json-rpc = "0.13.0"
-alloy-sol-types = "1.0.0"
+alloy-chains = "0.2.0"
+alloy-json-rpc = "0.14.0"
+alloy-rpc-types = "0.14.0"
+alloy-primitives = { version = "1.0.0", features = ["std", "serde", "map"] }

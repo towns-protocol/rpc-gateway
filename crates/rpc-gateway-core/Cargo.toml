@@ -17,7 +17,8 @@ workspace = true
 actix-web.workspace = true
 alloy-chains.workspace = true
 alloy-json-rpc.workspace = true
-alloy-sol-types.workspace = true
+alloy-rpc-types.workspace = true
+alloy-primitives.workspace = true
 arc-swap.workspace = true
 duration-str.workspace = true
 futures.workspace = true
@@ -35,12 +36,6 @@ tracing-actix-web.workspace = true
 tracing-appender.workspace = true
 tracing-subscriber.workspace = true
 url.workspace = true
-
-# Additional dependencies not in workspace
-alloy-network = "0.13.0"
-alloy-rpc-types = "0.13.0"
-alloy-rpc-types-eth = "0.13.0"
-alloy-primitives = { version = "1.0.0", features = ["std", "serde", "map"] }
 clap.workspace = true
 
 [[bin]]
