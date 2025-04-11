@@ -19,6 +19,12 @@ pub struct ChainHandler {
     pub request_pool: ChainRequestPool,
     pub cache: Option<RpcCache>,
 }
+use std::sync::LazyLock;
+
+static CANNED_RESPONSE_CLIENT_VERSION: LazyLock<ResponseResult> = LazyLock::new(|| {
+    let version = env!("CARGO_PKG_VERSION");
+    ResponseResult::Success(serde_json::json!(format!("RPC-Gateway/{}", version)))
+});
 
 impl ChainHandler {
     pub fn new(
@@ -161,11 +167,30 @@ impl ChainHandler {
             .await;
     }
 
+    async fn try_canned_response(&self, req: &EthRequest) -> Option<ResponseResult> {
+        // TODO: make these configurable. especially the web3 client version.
+        match req {
+            EthRequest::Web3ClientVersion(_) => Some(CANNED_RESPONSE_CLIENT_VERSION.clone()),
+            EthRequest::EthChainId(_) => Some(ResponseResult::Success(serde_json::json!(format!(
+                "0x{:x}",
+                self.chain_config.chain.id()
+            )))),
+            // EthRequest::Web3Sha3(bytes) => todo!(), TODO: self-implement
+            // EthRequest::EthNetworkId(_) => todo!(), TODO: self-implement
+            _ => None,
+        }
+    }
+
     async fn on_request(
         &self,
         req: EthRequest,
         raw_call: &Value,
     ) -> Result<ResponseResult, Box<dyn std::error::Error>> {
+        if let Some(response) = self.try_canned_response(&req).await {
+            debug!(?req, "using canned response");
+            return Ok(response);
+        }
+
         if let Some(response) = self.try_cache_read(&req).await {
             return Ok(response);
         }
