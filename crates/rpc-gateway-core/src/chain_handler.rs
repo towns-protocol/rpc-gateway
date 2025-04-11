@@ -6,16 +6,14 @@ use anvil_core::eth::EthRequest;
 use anvil_rpc::error::RpcError;
 use anvil_rpc::request::{RpcCall, RpcMethodCall};
 use anvil_rpc::response::{ResponseResult, RpcResponse};
-use serde::de;
 use serde_json::Value;
 use std::sync::Arc;
-use std::time::Duration;
 use tracing::{debug, error, info, trace, warn};
 
 use crate::cache::RpcCache;
 use crate::request_pool::ChainRequestPool;
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct ChainHandler {
     pub chain_config: Arc<ChainConfig>,
     pub request_pool: ChainRequestPool,

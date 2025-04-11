@@ -13,7 +13,7 @@ use tracing::{debug, info, instrument, warn};
 
 use crate::chain_handler::ChainHandler;
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct Gateway {
     handlers: HashMap<u64, ChainHandler>,
     config: Config,

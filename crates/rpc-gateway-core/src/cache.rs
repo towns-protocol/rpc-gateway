@@ -1,20 +1,10 @@
-use alloy_chains::Chain;
-use alloy_dyn_abi::TypedData;
 use alloy_eips::{BlockNumberOrTag, eip1898::BlockId};
-use alloy_rpc_types::{
-    state::AccountOverride,
-    trace::{
-        filter::TraceFilter,
-        geth::{GethDebugTracingCallOptions, GethDebugTracingOptions},
-    },
-};
 use anvil_core::eth::EthRequest;
 use arc_swap::ArcSwap;
 use moka::Expiry;
 use moka::future::Cache;
 use serde_json::Value;
 use std::{
-    borrow::Cow,
     hash::{DefaultHasher, Hash, Hasher},
     sync::Arc,
     time::{Duration, Instant},
@@ -76,17 +66,6 @@ pub struct RpcCache {
     block_time: Duration,
     /// The latest block number for this chain
     latest_block_number: ArcSwap<u64>,
-}
-
-impl Clone for RpcCache {
-    fn clone(&self) -> Self {
-        let block_number = self.latest_block_number.load().clone();
-        Self {
-            cache: self.cache.clone(),
-            block_time: self.block_time,
-            latest_block_number: ArcSwap::new(block_number.into()),
-        }
-    }
 }
 
 static ONE_YEAR: Duration = Duration::from_secs(31536000);

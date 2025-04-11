@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use crate::config::Config;
 use crate::gateway::Gateway;
 use actix_web::{App, HttpResponse, HttpServer, Result, web};
@@ -9,7 +11,7 @@ use tracing_actix_web::TracingLogger;
 async fn handle_rpc_request(
     path: web::Path<u64>,
     request: web::Json<Request>,
-    gateway: web::Data<Gateway>,
+    gateway: web::Data<Arc<Gateway>>,
 ) -> Result<String> {
     let chain_id = path.into_inner();
     debug!(
@@ -34,12 +36,12 @@ async fn handle_rpc_request(
     Ok(response_string)
 }
 
-async fn liveness_probe(gateway: web::Data<Gateway>) -> Result<String> {
+async fn liveness_probe(gateway: web::Data<Arc<Gateway>>) -> Result<String> {
     // TODO: implement real liveness probes.
     Ok("OK".to_string())
 }
 
-async fn readiness_probe(gateway: web::Data<Gateway>) -> Result<String> {
+async fn readiness_probe(gateway: web::Data<Arc<Gateway>>) -> Result<String> {
     // TODO: implement readiness probes.
     Ok("OK".to_string())
 }
@@ -50,6 +52,8 @@ pub async fn run(gateway: Gateway, config: Config) -> std::io::Result<()> {
         port = %config.server.port,
         "Starting server"
     );
+
+    let gateway = Arc::new(gateway);
 
     HttpServer::new(move || {
         App::new()
