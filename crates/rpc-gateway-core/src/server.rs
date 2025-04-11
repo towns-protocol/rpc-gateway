@@ -36,12 +36,12 @@ async fn handle_rpc_request(
     Ok(response_string)
 }
 
-async fn liveness_probe(gateway: web::Data<Arc<Gateway>>) -> Result<String> {
+async fn liveness_probe() -> Result<String> {
     // TODO: implement real liveness probes.
     Ok("OK".to_string())
 }
 
-async fn readiness_probe(gateway: web::Data<Arc<Gateway>>) -> Result<String> {
+async fn readiness_probe() -> Result<String> {
     // TODO: implement readiness probes.
     Ok("OK".to_string())
 }
