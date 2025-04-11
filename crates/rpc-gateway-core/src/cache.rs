@@ -1,18 +1,29 @@
 use alloy_chains::Chain;
+use alloy_dyn_abi::TypedData;
+use alloy_eips::{BlockNumberOrTag, eip1898::BlockId};
+use alloy_rpc_types::{
+    state::AccountOverride,
+    trace::{
+        filter::TraceFilter,
+        geth::{GethDebugTracingCallOptions, GethDebugTracingOptions},
+    },
+};
+use anvil_core::eth::EthRequest;
+use arc_swap::ArcSwap;
 use moka::Expiry;
 use moka::future::Cache;
 use serde_json::Value;
 use std::{
     borrow::Cow,
     hash::{DefaultHasher, Hash, Hasher},
+    sync::Arc,
     time::{Duration, Instant},
 };
 
 #[derive(Debug, Clone)]
 pub struct ReqRes {
-    pub method: Cow<'static, str>,
-    pub params: Value,
-    pub response: Value,
+    pub req: EthRequest,
+    pub res: Value,
 }
 
 /// Represents a cache entry
@@ -57,13 +68,28 @@ impl Expiry<String, CacheEntry> for TtlExpiry {
 }
 
 /// A cache implementation with field-level TTL
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct RpcCache {
     /// The underlying cache implementation
     cache: Cache<String, CacheEntry>,
     /// The block time for this chain
     block_time: Duration,
+    /// The latest block number for this chain
+    latest_block_number: ArcSwap<u64>,
 }
+
+impl Clone for RpcCache {
+    fn clone(&self) -> Self {
+        let block_number = self.latest_block_number.load().clone();
+        Self {
+            cache: self.cache.clone(),
+            block_time: self.block_time,
+            latest_block_number: ArcSwap::new(block_number.into()),
+        }
+    }
+}
+
+static ONE_YEAR: Duration = Duration::from_secs(31536000);
 
 impl RpcCache {
     /// Creates a new cache with the given maximum capacity and block time
@@ -72,174 +98,256 @@ impl RpcCache {
             .max_capacity(max_capacity)
             .expire_after(TtlExpiry)
             .build();
-        Self { cache, block_time }
-    }
-
-    fn hash_key(method: &Cow<'static, str>, params: &Value) -> String {
-        let mut hasher = DefaultHasher::new();
-        method.hash(&mut hasher);
-        params.hash(&mut hasher);
-        hasher.finish().to_string()
-    }
-
-    /// Gets a value from the cache if it exists
-    pub async fn get(&self, method: &Cow<'static, str>, params: &Value) -> Option<ReqRes> {
-        let key = RpcCache::hash_key(&method, params);
-        let reqres = match self.cache.get(&key).await {
-            Some(entry) => entry.value,
-            None => return None,
-        };
-
-        if reqres.method.eq(method) && reqres.params.eq(params) {
-            Some(reqres)
-        } else {
-            None
+        Self {
+            cache,
+            block_time,
+            latest_block_number: ArcSwap::new(Arc::new(0)),
         }
     }
 
+    /// Gets a value from the cache if it exists
+    pub async fn get(&self, req: &EthRequest) -> Option<ReqRes> {
+        let mut hasher = DefaultHasher::new();
+        req.hash(&mut hasher);
+        let key = hasher.finish().to_string();
+        self.cache.get(&key).await.map(|entry| entry.value)
+    }
+
     /// Inserts a value into the cache with the given TTL
-    pub async fn insert(
-        &self,
-        method: &Cow<'static, str>,
-        params: &Value,
-        response: &Value,
-        ttl: Duration,
-    ) {
-        let key = RpcCache::hash_key(method, params);
+    pub async fn insert(&self, req: &EthRequest, response: &Value, ttl: Duration) {
+        let mut hasher = DefaultHasher::new();
+        req.hash(&mut hasher);
+        let key = hasher.finish().to_string();
         let reqres = ReqRes {
-            method: method.clone(),
-            params: params.clone(),
-            response: response.clone(),
+            req: req.clone(),
+            res: response.clone(),
         };
         let entry = CacheEntry::new(reqres, ttl);
-        self.cache.insert(key.to_string(), entry).await;
+        self.cache.insert(key, entry).await;
+    }
+
+    fn get_ttl_from_block_number_or_tag(
+        &self,
+        block_number_or_tag: &BlockNumberOrTag,
+    ) -> Option<Duration> {
+        match block_number_or_tag {
+            BlockNumberOrTag::Latest => Some(self.block_time),
+            BlockNumberOrTag::Finalized => Some(ONE_YEAR),
+            BlockNumberOrTag::Safe => Some(self.block_time), // TODO: can do better here
+            BlockNumberOrTag::Earliest => Some(ONE_YEAR),
+            BlockNumberOrTag::Pending => None,
+            BlockNumberOrTag::Number(number) => {
+                let latest_block_number = **self.latest_block_number.load();
+                if *number < latest_block_number && latest_block_number - number > 50 {
+                    // TODO: can cache block with longer diff a bit longer than the rest. revisit this part.
+                    Some(ONE_YEAR)
+                } else {
+                    Some(self.block_time)
+                }
+            }
+        }
+    }
+
+    fn get_ttl_from_block_id(&self, block_id: &BlockId) -> Option<Duration> {
+        let block_number_or_tag = match block_id {
+            BlockId::Hash(_) => return Some(ONE_YEAR), // can cache hash for a very long time - 1 year in seconds
+            BlockId::Number(block_number_or_tag) => block_number_or_tag,
+        };
+        self.get_ttl_from_block_number_or_tag(block_number_or_tag)
     }
 
     /// Returns the TTL for a given method if it's cacheable
-    pub fn get_ttl(&self, method: &str) -> Option<Duration> {
-        // match method {
-        //     "eth_blockNumber" => Some(Duration::from_secs(1)),
-        //     "eth_getBalance" => Some(Duration::from_secs(10)),
-        //     "eth_getTransactionCount" => Some(Duration::from_secs(10)),
-        //     "eth_getCode" => Some(Duration::from_secs(300)), // 5 minutes
-        //     "eth_call" => Some(Duration::from_secs(1)),
-        //     "eth_estimateGas" => Some(Duration::from_secs(1)),
-        //     "eth_gasPrice" => Some(Duration::from_secs(10)),
-        //     "eth_maxPriorityFeePerGas" => Some(Duration::from_secs(10)),
-        //     "eth_feeHistory" => Some(Duration::from_secs(10)),
-        //     _ => None,
-        // }
-        // TODO: implement
-        None
+    pub fn get_ttl(&self, req: &EthRequest) -> Option<Duration> {
+        match req {
+            // EthRequest::Web3ClientVersion(_) => todo!(), TODO: self-implement
+            // EthRequest::Web3Sha3(bytes) => todo!(), TODO: self-implement
+            // EthRequest::EthChainId(_) => todo!(), TODO: self-implement
+            // EthRequest::EthNetworkId(_) => todo!(), TODO: self-implement
+            // EthRequest::NetListening(_) => todo!(),
+            EthRequest::EthGasPrice(_) => Some(self.block_time), // TODO: make this configurable
+            EthRequest::EthMaxPriorityFeePerGas(_) => Some(self.block_time), // TODO: make this configurable
+            EthRequest::EthBlobBaseFee(_) => Some(self.block_time), // TODO: make this configurable
+            // EthRequest::EthAccounts(_) => todo!(),
+            EthRequest::EthBlockNumber(_) => Some(self.block_time), // TODO: make this configurable
+            EthRequest::EthGetBalance(_, block_id) => {
+                if let Some(block_id) = block_id {
+                    self.get_ttl_from_block_id(block_id)
+                } else {
+                    Some(self.block_time)
+                }
+            }
+            EthRequest::EthGetAccount(_, block_id) => {
+                if let Some(block_id) = block_id {
+                    self.get_ttl_from_block_id(block_id)
+                } else {
+                    Some(self.block_time)
+                }
+            }
+            EthRequest::EthGetStorageAt(_, _, block_id) => {
+                if let Some(block_id) = block_id {
+                    self.get_ttl_from_block_id(block_id)
+                } else {
+                    Some(self.block_time)
+                }
+            }
+            EthRequest::EthGetBlockByHash(_, _) => Some(ONE_YEAR),
+            EthRequest::EthGetBlockByNumber(block_number_or_tag, _) => {
+                self.get_ttl_from_block_number_or_tag(block_number_or_tag)
+            }
+            EthRequest::EthGetTransactionCount(_, block_id) => {
+                if let Some(block_id) = block_id {
+                    self.get_ttl_from_block_id(block_id)
+                } else {
+                    Some(self.block_time)
+                }
+            }
+            EthRequest::EthGetTransactionCountByHash(_) => Some(ONE_YEAR),
+            EthRequest::EthGetTransactionCountByNumber(block_number_or_tag) => {
+                self.get_ttl_from_block_number_or_tag(block_number_or_tag)
+            }
+            EthRequest::EthGetUnclesCountByHash(_) => Some(ONE_YEAR),
+            EthRequest::EthGetUnclesCountByNumber(block_number_or_tag) => {
+                self.get_ttl_from_block_number_or_tag(block_number_or_tag)
+            }
+            EthRequest::EthGetCodeAt(_, block_id) => {
+                if let Some(block_id) = block_id {
+                    self.get_ttl_from_block_id(block_id)
+                } else {
+                    Some(self.block_time)
+                }
+            }
+            EthRequest::EthGetProof(_, _, block_id) => {
+                if let Some(block_id) = block_id {
+                    self.get_ttl_from_block_id(block_id)
+                } else {
+                    Some(self.block_time)
+                }
+            }
+            // EthRequest::EthSign(address, bytes) => todo!(),
+            // EthRequest::PersonalSign(bytes, address) => todo!(),
+            // EthRequest::EthSignTransaction(_) => todo!(),
+            // EthRequest::EthSignTypedData(address, value) => todo!(),
+            // EthRequest::EthSignTypedDataV3(address, value) => todo!(),
+            // EthRequest::EthSignTypedDataV4(address, typed_data) => todo!(),
+            // EthRequest::EthSendTransaction(_) => todo!(),
+            // EthRequest::EthSendRawTransaction(bytes) => todo!(),
+            EthRequest::EthCall(_, block_id, _) => {
+                if let Some(block_id) = block_id {
+                    self.get_ttl_from_block_id(block_id)
+                } else {
+                    Some(self.block_time)
+                }
+            }
+            // EthRequest::EthSimulateV1(simulate_payload, block_id) => todo!(),
+            // EthRequest::EthCreateAccessList(_, block_id) => todo!(),
+            EthRequest::EthEstimateGas(_, block_id, _) => {
+                if let Some(block_id) = block_id {
+                    self.get_ttl_from_block_id(block_id)
+                } else {
+                    Some(self.block_time)
+                }
+            }
+            EthRequest::EthGetTransactionByHash(_) => Some(ONE_YEAR),
+            EthRequest::EthGetTransactionByBlockHashAndIndex(_, _) => Some(ONE_YEAR),
+            EthRequest::EthGetTransactionByBlockNumberAndIndex(block_number_or_tag, _) => {
+                self.get_ttl_from_block_number_or_tag(block_number_or_tag)
+            }
+            EthRequest::EthGetRawTransactionByHash(_) => Some(ONE_YEAR),
+            EthRequest::EthGetRawTransactionByBlockHashAndIndex(_, _) => Some(ONE_YEAR),
+            EthRequest::EthGetRawTransactionByBlockNumberAndIndex(block_number_or_tag, _) => {
+                self.get_ttl_from_block_number_or_tag(block_number_or_tag)
+            }
+            EthRequest::EthGetTransactionReceipt(_) => {
+                // TODO: this actually depends on the transaction itself. sometimes the ttl needs to be aware of the data we're writing.
+                // We're currently re-using ttls to determine if we should cache the response - or whether the request could even exist in the cache in the first place. So we need to separate the two, and actually take a look at the data we're writing while determining the final ttl.
+                Some(self.block_time)
+            }
+            EthRequest::EthGetBlockReceipts(block_id) => self.get_ttl_from_block_id(block_id),
+            EthRequest::EthGetUncleByBlockHashAndIndex(_, _) => Some(ONE_YEAR),
+            EthRequest::EthGetUncleByBlockNumberAndIndex(block_number_or_tag, _) => {
+                self.get_ttl_from_block_number_or_tag(block_number_or_tag)
+            }
+            EthRequest::EthGetLogs(_) => Some(self.block_time),
+            // EthRequest::EthNewFilter(filter) => todo!(),
+            EthRequest::EthGetFilterChanges(_) => Some(self.block_time),
+            // EthRequest::EthNewBlockFilter(_) => todo!(),
+            // EthRequest::EthNewPendingTransactionFilter(_) => todo!(),
+            EthRequest::EthGetFilterLogs(_) => Some(self.block_time),
+            // EthRequest::EthUninstallFilter(_) => todo!(),
+            // EthRequest::EthGetWork(_) => todo!(),
+            // EthRequest::EthSubmitWork(fixed_bytes, fixed_bytes1, fixed_bytes2) => todo!(),
+            // EthRequest::EthSubmitHashRate(uint, fixed_bytes) => todo!(),
+            EthRequest::EthFeeHistory(uint, block_number_or_tag, items) => {
+                self.get_ttl_from_block_number_or_tag(block_number_or_tag)
+            }
+            // EthRequest::EthSyncing(_) => todo!(),
+            // EthRequest::DebugGetRawTransaction(fixed_bytes) => todo!(),
+            // EthRequest::DebugTraceTransaction(fixed_bytes, geth_debug_tracing_options) => todo!(),
+            // EthRequest::DebugTraceCall(_, block_id, geth_debug_tracing_call_options) => todo!(),
+            // EthRequest::TraceTransaction(fixed_bytes) => todo!(),
+            // EthRequest::TraceBlock(block_number_or_tag) => todo!(),
+            // EthRequest::TraceFilter(trace_filter) => todo!(),
+            // EthRequest::ImpersonateAccount(address) => todo!(),
+            // EthRequest::StopImpersonatingAccount(address) => todo!(),
+            // EthRequest::AutoImpersonateAccount(_) => todo!(),
+            // EthRequest::GetAutoMine(_) => todo!(),
+            // EthRequest::Mine(uint, uint1) => todo!(),
+            // EthRequest::SetAutomine(_) => todo!(),
+            // EthRequest::SetIntervalMining(_) => todo!(),
+            // EthRequest::GetIntervalMining(_) => todo!(),
+            // EthRequest::DropTransaction(fixed_bytes) => todo!(),
+            // EthRequest::DropAllTransactions() => todo!(),
+            // EthRequest::Reset(params) => todo!(),
+            // EthRequest::SetRpcUrl(_) => todo!(),
+            // EthRequest::SetBalance(address, uint) => todo!(),
+            // EthRequest::SetCode(address, bytes) => todo!(),
+            // EthRequest::SetNonce(address, uint) => todo!(),
+            // EthRequest::SetStorageAt(address, uint, fixed_bytes) => todo!(),
+            // EthRequest::SetCoinbase(address) => todo!(),
+            // EthRequest::SetChainId(_) => todo!(),
+            // EthRequest::SetLogging(_) => todo!(),
+            // EthRequest::SetMinGasPrice(uint) => todo!(),
+            // EthRequest::SetNextBlockBaseFeePerGas(uint) => todo!(),
+            // EthRequest::EvmSetTime(uint) => todo!(),
+            // EthRequest::DumpState(params) => todo!(),
+            // EthRequest::LoadState(bytes) => todo!(),
+            // EthRequest::NodeInfo(_) => todo!(),
+            // EthRequest::AnvilMetadata(_) => todo!(),
+            // EthRequest::EvmSnapshot(_) => todo!(),
+            // EthRequest::EvmRevert(uint) => todo!(),
+            // EthRequest::EvmIncreaseTime(uint) => todo!(),
+            // EthRequest::EvmSetNextBlockTimeStamp(uint) => todo!(),
+            // EthRequest::EvmSetBlockGasLimit(uint) => todo!(),
+            // EthRequest::EvmSetBlockTimeStampInterval(_) => todo!(),
+            // EthRequest::EvmRemoveBlockTimeStampInterval(_) => todo!(),
+            // EthRequest::EvmMine(params) => todo!(),
+            // EthRequest::EvmMineDetailed(params) => todo!(),
+            // EthRequest::EthSendUnsignedTransaction(_) => todo!(),
+            // EthRequest::EnableTraces(_) => todo!(),
+            // EthRequest::TxPoolStatus(_) => todo!(),
+            // EthRequest::TxPoolInspect(_) => todo!(),
+            // EthRequest::TxPoolContent(_) => todo!(),
+            // EthRequest::ErigonGetHeaderByNumber(block_number_or_tag) => todo!(),
+            // EthRequest::OtsGetApiLevel(_) => todo!(),
+            // EthRequest::OtsGetInternalOperations(fixed_bytes) => todo!(),
+            // EthRequest::OtsHasCode(address, block_number_or_tag) => todo!(),
+            // EthRequest::OtsTraceTransaction(fixed_bytes) => todo!(),
+            // EthRequest::OtsGetTransactionError(fixed_bytes) => todo!(),
+            // EthRequest::OtsGetBlockDetails(block_number_or_tag) => todo!(),
+            // EthRequest::OtsGetBlockDetailsByHash(fixed_bytes) => todo!(),
+            // EthRequest::OtsGetBlockTransactions(_, _, _) => todo!(),
+            // EthRequest::OtsSearchTransactionsBefore(address, _, _) => todo!(),
+            // EthRequest::OtsSearchTransactionsAfter(address, _, _) => todo!(),
+            // EthRequest::OtsGetTransactionBySenderAndNonce(address, uint) => todo!(),
+            // EthRequest::OtsGetContractCreator(address) => todo!(),
+            // EthRequest::RemovePoolTransactions(address) => todo!(),
+            // EthRequest::Reorg(reorg_options) => todo!(),
+            // EthRequest::Rollback(_) => todo!(),
+            // EthRequest::WalletGetCapabilities(_) => todo!(),
+            // EthRequest::WalletSendTransaction(_) => todo!(),
+            // EthRequest::AnvilAddCapability(address) => todo!(),
+            // EthRequest::AnvilSetExecutor(_) => todo!(),
+            _ => None,
+        }
     }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use tokio::time::sleep;
-
-    #[tokio::test]
-    async fn test_cache_ttl() {
-        let block_time = Duration::from_secs(12);
-        let cache = RpcCache::new(100, block_time);
-        let method = Cow::Borrowed("eth_getBalance");
-        let params = Value::Array(vec![
-            Value::String("0x123".to_string()),
-            Value::String("latest".to_string()),
-        ]);
-        let response = Value::String("0x1000".to_string());
-        let ttl = Duration::from_millis(100);
-
-        // Insert a value
-        cache.insert(&method, &params, &response, ttl).await;
-
-        // Value should be present immediately
-        let cached = cache.get(&method, &params).await;
-        assert!(cached.is_some());
-        assert_eq!(cached.unwrap().response, response);
-
-        // Wait for TTL to expire
-        sleep(ttl + Duration::from_millis(10)).await;
-
-        // Value should be expired
-        assert!(cache.get(&method, &params).await.is_none());
-    }
-
-    #[tokio::test]
-    async fn test_cache_different_methods() {
-        let block_time = Duration::from_secs(12);
-        let cache = RpcCache::new(100, block_time);
-        let ttl = Duration::from_secs(60);
-
-        // Insert values for different methods
-        let method1 = Cow::Borrowed("eth_getBalance");
-        let method2 = Cow::Borrowed("eth_blockNumber");
-        let params1 = Value::Array(vec![Value::String("0x123".to_string())]);
-        let params2 = Value::Array(vec![]);
-        let response1 = Value::String("0x1000".to_string());
-        let response2 = Value::String("0x1234".to_string());
-
-        cache.insert(&method1, &params1, &response1, ttl).await;
-        cache.insert(&method2, &params2, &response2, ttl).await;
-
-        // Both values should be present
-        let cached1 = cache.get(&method1, &params1).await;
-        let cached2 = cache.get(&method2, &params2).await;
-
-        assert!(cached1.is_some());
-        assert!(cached2.is_some());
-        assert_eq!(cached1.unwrap().response, response1);
-        assert_eq!(cached2.unwrap().response, response2);
-    }
-
-    #[tokio::test]
-    async fn test_cache_different_params() {
-        let block_time = Duration::from_secs(12);
-        let cache = RpcCache::new(100, block_time);
-        let method = Cow::Borrowed("eth_getBalance");
-        let ttl = Duration::from_secs(60);
-
-        // Insert values for different addresses
-        let params1 = Value::Array(vec![
-            Value::String("0x123".to_string()),
-            Value::String("latest".to_string()),
-        ]);
-        let params2 = Value::Array(vec![
-            Value::String("0x456".to_string()),
-            Value::String("latest".to_string()),
-        ]);
-        let response1 = Value::String("0x1000".to_string());
-        let response2 = Value::String("0x2000".to_string());
-
-        cache.insert(&method, &params1, &response1, ttl).await;
-        cache.insert(&method, &params2, &response2, ttl).await;
-
-        // Both values should be present
-        let cached1 = cache.get(&method, &params1).await;
-        let cached2 = cache.get(&method, &params2).await;
-
-        assert!(cached1.is_some());
-        assert!(cached2.is_some());
-        assert_eq!(cached1.unwrap().response, response1);
-        assert_eq!(cached2.unwrap().response, response2);
-    }
-
-    // TODO: implement
-    // #[test]
-    // fn test_ttl_values() {
-    //     let block_time = Duration::from_secs(12);
-    //     let cache = RpcCache::new(100, block_time);
-
-    //     assert_eq!(
-    //         cache.get_ttl("eth_blockNumber"),
-    //         Some(Duration::from_secs(1))
-    //     );
-    //     assert_eq!(
-    //         cache.get_ttl("eth_getBalance"),
-    //         Some(Duration::from_secs(10))
-    //     );
-    //     assert_eq!(cache.get_ttl("eth_getCode"), Some(Duration::from_secs(300)));
-    //     assert_eq!(cache.get_ttl("eth_sendTransaction"), None);
-    // }
 }

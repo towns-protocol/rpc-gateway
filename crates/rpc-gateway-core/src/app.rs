@@ -16,6 +16,8 @@ pub async fn run() {
     debug!(gateway = ?gateway, "Created gateway");
 
     gateway.run_upstream_health_checks().await;
+    debug!("Ran upstream health checks");
+
     gateway.start_upstream_health_check_loops();
 
     server::run(gateway, config)

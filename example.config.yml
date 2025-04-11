@@ -42,7 +42,6 @@ logging:
 
 chains:
   1:
-    block_time: 12000
     upstreams:
       - url: "$ALCHEMY_URL"
         timeout: "10s"

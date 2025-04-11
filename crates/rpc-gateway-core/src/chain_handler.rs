@@ -5,10 +5,12 @@ use crate::config::{
 use anvil_core::eth::EthRequest;
 use anvil_rpc::error::RpcError;
 use anvil_rpc::request::{RpcCall, RpcMethodCall};
-use anvil_rpc::response::RpcResponse;
+use anvil_rpc::response::{ResponseResult, RpcResponse};
+use serde::de;
 use serde_json::Value;
 use std::sync::Arc;
-use tracing::{error, info, trace, warn};
+use std::time::Duration;
+use tracing::{debug, error, info, trace, warn};
 
 use crate::cache::RpcCache;
 use crate::request_pool::ChainRequestPool;
@@ -17,7 +19,7 @@ use crate::request_pool::ChainRequestPool;
 pub struct ChainHandler {
     pub chain_config: Arc<ChainConfig>,
     pub request_pool: ChainRequestPool,
-    cache: Option<RpcCache>,
+    pub cache: Option<RpcCache>,
 }
 
 impl ChainHandler {
@@ -92,7 +94,7 @@ impl ChainHandler {
             "params": call.params
         });
 
-        let response = match serde_json::from_value::<EthRequest>(raw_call.clone()) {
+        let response_result = match serde_json::from_value::<EthRequest>(raw_call.clone()) {
             Ok(req) => self.on_request(req, &raw_call).await,
             Err(err) => {
                 let err = err.to_string();
@@ -107,8 +109,8 @@ impl ChainHandler {
             }
         };
 
-        match response {
-            Ok(response) => response,
+        match response_result {
+            Ok(response_result) => RpcResponse::new(id, response_result),
             Err(err) => {
                 error!(target: "rpc", ?method, ?err, "failed to handle method call");
                 // TODO: do better error handling here
@@ -117,14 +119,67 @@ impl ChainHandler {
         }
     }
 
+    async fn try_cache_read(&self, req: &EthRequest) -> Option<ResponseResult> {
+        let cache = match &self.cache {
+            Some(cache) => cache,
+            None => return None,
+        };
+
+        let cache_ttl = cache.get_ttl(&req);
+
+        if cache_ttl.is_some() {
+            debug!(?req, "method is cacheable");
+            if let Some(response) = cache.get(&req).await {
+                debug!(?req, "cache hit");
+                return Some(ResponseResult::Success(response.res));
+            } else {
+                debug!(?req, "cache miss");
+            }
+        } else {
+            debug!(?req, "method is not cacheable");
+        }
+        None
+    }
+
+    async fn try_cache_write(&self, req: &EthRequest, res: &ResponseResult) {
+        let cache = match &self.cache {
+            Some(cache) => cache,
+            None => return,
+        };
+        let cache_ttl = match cache.get_ttl(&req) {
+            Some(cache_ttl) => cache_ttl,
+            None => return,
+        };
+        let successful_response_result = match res {
+            ResponseResult::Success(res) => res,
+            ResponseResult::Error(_) => {
+                debug!(?req, "method returned error, not caching");
+                return;
+            }
+        };
+        debug!(?req, "caching response");
+        cache
+            .insert(&req, successful_response_result, cache_ttl)
+            .await;
+    }
+
     async fn on_request(
         &self,
         req: EthRequest,
         raw_call: &Value,
-    ) -> Result<RpcResponse, Box<dyn std::error::Error>> {
-        // TODO: add cache lookup here
+    ) -> Result<ResponseResult, Box<dyn std::error::Error>> {
+        if let Some(response) = self.try_cache_read(&req).await {
+            return Ok(response);
+        }
+
         let response = self.request_pool.forward_request(raw_call).await;
 
-        return response;
+        if let Ok(response) = &response {
+            self.try_cache_write(&req, &response.result).await;
+        } else {
+            debug!(?req, "internal error, not caching");
+        }
+
+        return response.map(|res| res.result);
     }
 }

@@ -19,3 +19,6 @@
 [ ] Stop depending on the RUST_LOG environment variable. But do allow it to take effect if set.
 [ ] Forward request headers according to config
 [ ] Readiness check should move upstreams with non-matching chain ids into the terminated list, and it should not check them again.
+[ ] When a block is received as a response, populate the cace for all different kinds of requests that can result in that block. For example, a block with "latest" could have been received. So you can populate block by hash, block by number, etc.
+[ ] Do the same thing for transactions. If a block is received with a list of transactions, populate the cache for all different kinds of requests that can result in those transactions.
+[ ] Create a method_filter that allows us to hardcode responses for certain methods. For example, eth_chainId or EthSignTypedData, EthSignTypedDataV3, EthSignTypedDataV4, etc.
