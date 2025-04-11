@@ -1,17 +1,14 @@
 use crate::config::Config;
 use crate::gateway::Gateway;
-use crate::logging;
-
-use actix_web::{App, HttpServer, Result, web};
-use alloy_json_rpc;
-use serde_json::Value;
-use tracing::{debug, error, info};
+use actix_web::{App, HttpResponse, HttpServer, Result, web};
+use anvil_rpc::{self, error::RpcError, request::Request, response::Response};
+use tracing::{debug, info};
 use tracing_actix_web::TracingLogger;
 
 // TODO: add better error handling.
-async fn index(
+async fn handle_rpc_request(
     path: web::Path<u64>,
-    request: web::Json<alloy_json_rpc::Request<Value>>,
+    request: web::Json<Request>,
     gateway: web::Data<Gateway>,
 ) -> Result<String> {
     let chain_id = path.into_inner();
@@ -21,24 +18,20 @@ async fn index(
         "Received JSON-RPC request"
     );
 
-    let response = gateway
-        .forward_request(chain_id, request.into_inner())
-        .await
-        .map_err(|e| {
-            error!(
-                chain_id = %chain_id,
-                error = %e,
-                "Error forwarding request"
-            );
-            actix_web::error::ErrorInternalServerError(e)
-        })?;
+    let response = gateway.handle_request(chain_id, request.into_inner()).await;
 
-    debug!(
+    info!(
         chain_id = %chain_id,
         response = ?response,
-        "Successfully forwarded request"
+        "Successfully handled request"
     );
-    Ok(serde_json::to_string(&response)?)
+
+    let response = response.unwrap_or(Response::error(RpcError::internal_error_with(
+        "Internal server error",
+    )));
+
+    let response_string = serde_json::to_string(&response)?;
+    Ok(response_string)
 }
 
 async fn liveness_probe(gateway: web::Data<Gateway>) -> Result<String> {
@@ -47,6 +40,7 @@ async fn liveness_probe(gateway: web::Data<Gateway>) -> Result<String> {
 }
 
 async fn readiness_probe(gateway: web::Data<Gateway>) -> Result<String> {
+    // TODO: implement readiness probes.
     Ok("OK".to_string())
 }
 
@@ -61,10 +55,13 @@ pub async fn run(gateway: Gateway, config: Config) -> std::io::Result<()> {
         App::new()
             .wrap(TracingLogger::default())
             .app_data(web::Data::new(gateway.clone()))
-            .route("/{chain_id}", web::post().to(index))
             .route("/health", web::get().to(liveness_probe))
             .route("/health/liveness", web::get().to(liveness_probe))
             .route("/health/readiness", web::get().to(readiness_probe))
+            .route("/{chain_id}", web::post().to(handle_rpc_request))
+            .default_service(
+                web::route().to(|| async { HttpResponse::NotFound().body("404 Not Found") }),
+            )
     })
     .bind((config.server.host.as_str(), config.server.port))?
     .run()

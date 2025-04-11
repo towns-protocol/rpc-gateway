@@ -3,13 +3,11 @@ use crate::config::{
 };
 use crate::load_balancer::{LoadBalancer, create_load_balancer};
 use crate::upstream::Upstream;
-use alloy_json_rpc::{Request, Response};
+use anvil_rpc::response::RpcResponse;
 use nonempty::NonEmpty;
-use rand::Rng;
 use serde_json::Value;
 use std::sync::Arc;
-use std::time::Duration;
-use tracing::{debug, error, info, instrument, warn};
+use tracing::{debug, error, instrument, warn};
 
 #[derive(Debug, Clone)]
 pub struct ChainRequestPool {
@@ -52,11 +50,18 @@ impl ChainRequestPool {
         }
     }
 
-    #[instrument(skip(self, request))]
+    #[instrument(skip(self))]
     pub async fn forward_request(
         &self,
-        request: Request<Value>,
-    ) -> Result<Response<Value>, Box<dyn std::error::Error>> {
+        raw_call: &Value,
+    ) -> Result<RpcResponse, Box<dyn std::error::Error>> {
+        let upstream = match self.load_balancer.select_upstream() {
+            Some(upstream) => upstream,
+            None => {
+                error!("No upstreams available");
+                return Err("No upstreams available".into());
+            }
+        };
         match &*self.error_handling {
             ErrorHandlingConfig::Retry {
                 max_retries,
@@ -69,90 +74,19 @@ impl ChainRequestPool {
                     jitter = %jitter,
                     "Using retry strategy"
                 );
-                self.forward_with_retry(request, *max_retries, *retry_delay, *jitter)
+                upstream
+                    .forward_with_retry(raw_call, *max_retries, *retry_delay, *jitter)
                     .await
             }
             ErrorHandlingConfig::FailFast { .. } => {
                 debug!("Using fail-fast strategy");
-                self.forward_once(request).await
+                upstream.forward_once(raw_call).await
             }
             ErrorHandlingConfig::CircuitBreaker { .. } => {
                 warn!(
                     "Circuit breaker strategy not yet implemented, falling back to single attempt"
                 );
-                self.forward_once(request).await
-            }
-        }
-    }
-
-    #[instrument(skip(self, request))]
-    async fn forward_with_retry(
-        &self,
-        request: Request<Value>,
-        max_retries: u32,
-        retry_delay: Duration,
-        jitter: bool,
-    ) -> Result<Response<Value>, Box<dyn std::error::Error>> {
-        let mut last_error = None;
-        let mut current_retry = 0;
-
-        while current_retry <= max_retries {
-            match self.forward_once(request.clone()).await {
-                Ok(response) => {
-                    info!(
-                        retry_count = %current_retry,
-                        "Successfully forwarded request"
-                    );
-                    return Ok(response);
-                }
-                Err(e) => {
-                    last_error = Some(e);
-                    if current_retry < max_retries {
-                        let delay = if jitter {
-                            let mut rng = rand::rng();
-                            retry_delay + Duration::from_millis(rng.random_range(0..1000))
-                        } else {
-                            retry_delay
-                        };
-                        warn!(
-                            delay = ?delay,
-                            attempt = %current_retry + 1,
-                            max_retries = %max_retries,
-                            "Request failed, retrying"
-                        );
-                        tokio::time::sleep(delay).await;
-                    }
-                    current_retry += 1;
-                }
-            }
-        }
-
-        error!("All retry attempts failed");
-        Err(last_error.unwrap_or_else(|| "Unknown error".into()))
-    }
-
-    #[instrument(skip(self, request))]
-    async fn forward_once(
-        &self,
-        request: Request<Value>,
-    ) -> Result<Response<Value>, Box<dyn std::error::Error>> {
-        match self.load_balancer.select_upstream() {
-            Some(upstream) => {
-                debug!(upstream = ?upstream, "Selected upstream");
-                let response = upstream
-                    .client
-                    .post(upstream.config.url.as_str())
-                    .json(&request)
-                    .send()
-                    .await?
-                    .json::<Response<Value>>()
-                    .await?;
-
-                Ok(response)
-            }
-            None => {
-                error!("No upstreams available");
-                Err("No upstreams available".into())
+                upstream.forward_once(raw_call).await
             }
         }
     }

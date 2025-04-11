@@ -1,9 +1,15 @@
 use crate::{config::Config, load_balancer::HealthCheckManager};
-use alloy_json_rpc::{Request, Response, ResponsePayload};
-use futures::future::join_all;
-use serde_json::Value;
+use anvil_rpc::{
+    error::RpcError,
+    request::Request,
+    response::{Response, RpcResponse},
+};
+use futures::{
+    FutureExt,
+    future::{self, join_all},
+};
 use std::collections::HashMap;
-use tracing::{debug, error, info, instrument, warn};
+use tracing::{debug, info, instrument, warn};
 
 use crate::chain_handler::ChainHandler;
 
@@ -73,39 +79,34 @@ impl Gateway {
         join_all(futures).await;
     }
 
-    #[instrument(skip(self, request), fields(chain_id = %chain_id))]
-    pub async fn forward_request(
-        &self,
-        chain_id: u64,
-        request: Request<Value>,
-    ) -> Result<Response<Value>, Box<dyn std::error::Error>> {
+    pub async fn handle_request(&self, chain_id: u64, req: Request) -> Option<Response> {
         debug!(chain_id = %chain_id, "Forwarding request");
 
-        let handler = self.handlers.get(&chain_id).ok_or_else(|| {
-            error!(chain_id = %chain_id, "Chain not found in configuration");
-            format!("Chain {} not found", chain_id)
-        })?;
-
-        let response = handler.handle_request(request).await?;
-
-        // Log the response based on whether it's an error or result
-        match &response.payload {
-            ResponsePayload::Success(result) => {
-                info!(
-                    chain_id = %chain_id,
-                    result = ?result,
-                    "Received successful response"
-                );
+        let chain_handler = match self.handlers.get(&chain_id) {
+            Some(chain_handler) => chain_handler,
+            None => {
+                let error = Response::error(RpcError::internal_error_with("Chain not supported"));
+                return Some(error);
             }
-            ResponsePayload::Failure(error) => {
-                error!(
-                    chain_id = %chain_id,
-                    error = ?error,
-                    "Received error response"
-                );
+        };
+
+        match req {
+            Request::Single(call) => chain_handler.handle_call(call).await.map(Response::Single),
+            Request::Batch(calls) => {
+                future::join_all(
+                    calls
+                        .into_iter()
+                        .map(move |call| chain_handler.handle_call(call)),
+                )
+                .map(responses_as_batch)
+                .await
             }
         }
-
-        Ok(response)
     }
+}
+
+/// processes batch calls
+fn responses_as_batch(outs: Vec<Option<RpcResponse>>) -> Option<Response> {
+    let batch: Vec<_> = outs.into_iter().flatten().collect();
+    (!batch.is_empty()).then_some(Response::Batch(batch))
 }

@@ -1,19 +1,31 @@
+use std::time::Duration;
+
 use crate::config::UpstreamConfig;
 use alloy_chains::Chain;
-use alloy_json_rpc::{Id, Request, Response, ResponsePayload};
-use alloy_primitives::{ChainId, U64};
+use anvil_rpc::response::RpcResponse;
+use rand::Rng;
 use reqwest::Client;
-use serde_json::Value;
-use std::time::Duration;
-use tracing::{debug, error, info, instrument, warn};
+use serde_json::{Value, json};
+use tracing::{error, info, instrument, warn};
 
 #[derive(Debug, Clone)]
 pub struct Upstream {
     pub config: UpstreamConfig,
     pub current_weight: f64,
     pub chain: Chain,
-    pub client: Client,
+    client: Client,
 }
+
+use std::sync::LazyLock;
+
+static CHAIN_ID_REQUEST: LazyLock<Value> = LazyLock::new(|| {
+    json!({
+      "jsonrpc": "2.0",
+      "method": "eth_chainId",
+      "params": [],
+      "id": 1
+    })
+});
 
 impl Upstream {
     pub fn new(config: UpstreamConfig, chain: Chain) -> Self {
@@ -33,124 +45,78 @@ impl Upstream {
         self.current_weight = self.config.weight as f64;
     }
 
-    // TODO: make this more efficient
+    // # TODO: implement
     #[instrument(skip(self))]
     pub async fn readiness_probe(&self) -> bool {
-        debug!(
-            url = %self.config.url,
-            expected_chain_id = %self.chain.id(),
-            "Checking upstream readiness"
-        );
+        return true;
+    }
 
-        for attempt in 0..3 {
-            debug!(
-                url = %self.config.url,
-                attempt = attempt + 1,
-                "Attempting readiness check"
-            );
+    // TODO: consider alloy types here.
+    #[instrument(skip(self))]
+    pub async fn forward_once(
+        &self,
+        raw_call: &Value,
+    ) -> Result<RpcResponse, Box<dyn std::error::Error>> {
+        // TODO: try parsing the response as an alloy_json_rpc::Response
+        // TODO: make sure the upstream errors can be represented as an RpcError.
+        // TODO: otherwise, consider just checking if the response is a success or error, and returning it as a Json Value.
 
-            let request = Request::new("eth_chainId", Id::Number(1), Value::Null);
+        let raw_response = self
+            .client
+            .post(self.config.url.as_str())
+            .json(&raw_call)
+            .send()
+            .await?;
 
-            let response = match self
-                .client
-                .post(self.config.url.as_str())
-                .json(&request)
-                .send()
-                .await
-            {
-                Ok(response) => response,
+        // TODO: rebuild your own RpcResponse type. need to be able to access the .result field.
+        let rpc_response = raw_response.json::<RpcResponse>().await?;
+        return Ok(rpc_response);
+    }
+
+    // # TODO: standardize error handling
+    #[instrument(skip(self))]
+    pub async fn forward_with_retry(
+        &self,
+        raw_call: &Value,
+        max_retries: u32,
+        retry_delay: Duration,
+        jitter: bool,
+    ) -> Result<RpcResponse, Box<dyn std::error::Error>> {
+        let mut last_error = None;
+        let mut current_retry = 0;
+
+        while current_retry <= max_retries {
+            match self.forward_once(raw_call).await {
+                Ok(response) => {
+                    info!(
+                        retry_count = %current_retry,
+                        "Successfully forwarded request"
+                    );
+                    return Ok(response);
+                }
                 Err(e) => {
-                    warn!(
-                        url = %self.config.url,
-                        attempt = attempt + 1,
-                        error = %e,
-                        "Failed to send request to upstream"
-                    );
-                    if attempt < 2 {
-                        tokio::time::sleep(Duration::from_secs(1)).await;
-                        continue;
+                    last_error = Some(e);
+                    if current_retry < max_retries {
+                        let delay = if jitter {
+                            let mut rng = rand::rng();
+                            retry_delay + Duration::from_millis(rng.random_range(0..1000))
+                        } else {
+                            retry_delay
+                        };
+                        warn!(
+                            delay = ?delay,
+                            attempt = %current_retry + 1,
+                            max_retries = %max_retries,
+                            "Request failed, retrying"
+                        );
+                        tokio::time::sleep(delay).await;
                     }
-                    return false;
+                    current_retry += 1;
                 }
-            };
-
-            let rpc_response = match response.json::<Response<Value>>().await {
-                Ok(response) => response,
-                Err(e) => {
-                    warn!(
-                        url = %self.config.url,
-                        attempt = attempt + 1,
-                        error = %e,
-                        "Failed to parse response from upstream"
-                    );
-                    if attempt < 2 {
-                        tokio::time::sleep(Duration::from_secs(1)).await;
-                        continue;
-                    }
-                    return false;
-                }
-            };
-
-            let payload = match rpc_response.payload {
-                ResponsePayload::Success(payload) => payload,
-                ResponsePayload::Failure(error) => {
-                    warn!(
-                        url = %self.config.url,
-                        attempt = attempt + 1,
-                        error = ?error,
-                        "Upstream returned error response"
-                    );
-                    if attempt < 2 {
-                        tokio::time::sleep(Duration::from_secs(1)).await;
-                        continue;
-                    }
-                    return false;
-                }
-            };
-
-            let chain_id: U64 = match serde_json::from_value(payload) {
-                Ok(chain_id) => chain_id,
-                Err(e) => {
-                    warn!(
-                        url = %self.config.url,
-                        attempt = attempt + 1,
-                        error = %e,
-                        "Failed to parse chain ID from response"
-                    );
-                    if attempt < 2 {
-                        tokio::time::sleep(Duration::from_secs(1)).await;
-                        continue;
-                    }
-                    return false;
-                }
-            };
-
-            let chain_id: ChainId = chain_id.to();
-
-            if chain_id == self.chain.id() {
-                info!(
-                    url = %self.config.url,
-                    chain_id = %chain_id,
-                    attempt = attempt + 1,
-                    "Upstream is ready"
-                );
-                return true;
-            } else {
-                warn!(
-                    url = %self.config.url,
-                    attempt = attempt + 1,
-                    expected_chain_id = %self.chain.id(),
-                    received_chain_id = %chain_id,
-                    "Upstream returned incorrect chain ID"
-                );
-                if attempt < 2 {
-                    tokio::time::sleep(Duration::from_secs(1)).await;
-                    continue;
-                }
-                return false;
             }
         }
 
-        false
+        error!("All retry attempts failed");
+        Err(last_error.unwrap().into())
     }
 }

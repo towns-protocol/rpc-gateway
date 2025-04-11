@@ -1,12 +1,14 @@
 use crate::config::{
-    CacheConfig, ChainConfig, Config, ErrorHandlingConfig, LoadBalancingStrategy,
+    CacheConfig, ChainConfig, ErrorHandlingConfig, LoadBalancingStrategy,
     UpstreamHealthChecksConfig,
 };
-use alloy_json_rpc::{Request, Response, ResponsePayload};
+use anvil_core::eth::EthRequest;
+use anvil_rpc::error::RpcError;
+use anvil_rpc::request::{RpcCall, RpcMethodCall};
+use anvil_rpc::response::RpcResponse;
 use serde_json::Value;
-use std::borrow::Cow;
 use std::sync::Arc;
-use tracing::{debug, error, info, instrument, warn};
+use tracing::{error, info, trace, warn};
 
 use crate::cache::RpcCache;
 use crate::request_pool::ChainRequestPool;
@@ -61,73 +63,54 @@ impl ChainHandler {
         }
     }
 
-    #[instrument(skip(self, request))]
-    pub async fn handle_request(
-        &self,
-        request: Request<Value>,
-    ) -> Result<Response<Value>, Box<dyn std::error::Error>> {
-        let method = Cow::Owned(request.meta.method.to_string());
-
-        // Check if cache is enabled and if this is a cacheable request
-        if let Some(cache) = &self.cache {
-            if let Some(ttl) = cache.get_ttl(&method) {
-                debug!(
-                    method = %method,
-                    ttl = ?ttl,
-                    "Method is cacheable"
-                );
-
-                // Try to get from cache first
-                if let Some(cached_response) = cache.get(&method, &request.params).await {
-                    info!(
-                        method = %method,
-                        "Cache hit"
-                    );
-                    return Ok(Response {
-                        id: request.meta.id,
-                        payload: ResponsePayload::Success(cached_response.response),
-                    });
-                }
-
-                info!(
-                    method = %method,
-                    "Cache miss"
-                );
-
-                // If not in cache, forward to request pool
-                let response = self.request_pool.forward_request(request.clone()).await?;
-
-                // Cache successful responses
-                if let ResponsePayload::Success(result) = &response.payload {
-                    debug!(
-                        method = %method,
-                        ttl = ?ttl,
-                        "Caching successful response"
-                    );
-                    cache.insert(&method, &request.params, result, ttl).await;
-                } else {
-                    warn!(
-                        method = %method,
-                        "Not caching error response"
-                    );
-                }
-
-                Ok(response)
-            } else {
-                debug!(
-                    method = %method,
-                    "Method is not cacheable"
-                );
-                // Non-cacheable request, forward directly
-                self.request_pool.forward_request(request).await
+    /// handle a single RPC method call
+    pub async fn handle_call(&self, call: RpcCall) -> Option<RpcResponse> {
+        match call {
+            RpcCall::MethodCall(call) => {
+                trace!(target: "rpc", id = ?call.id , method = ?call.method,  "handling call");
+                Some(self.on_method_call(call).await)
             }
-        } else {
-            debug!(
-                method = %method,
-                "Cache is disabled"
-            );
-            // Cache is disabled, forward directly
-            self.request_pool.forward_request(request).await
+            RpcCall::Notification(notification) => {
+                // TODO: handle notifications
+                trace!(target: "rpc", method = ?notification.method, "received rpc notification");
+                None
+            }
+            RpcCall::Invalid { id } => {
+                warn!(target: "rpc", ?id,  "invalid rpc call");
+                Some(RpcResponse::invalid_request(id))
+            }
         }
+    }
+
+    async fn on_method_call(&self, call: RpcMethodCall) -> RpcResponse {
+        trace!(target: "rpc",  id = ?call.id , method = ?call.method, params = ?call.params, "received method call");
+        let RpcMethodCall { method, id, .. } = call;
+
+        let raw_call = serde_json::json!({
+            "id": id,
+            "method": method,
+            "params": call.params
+        });
+
+        match serde_json::from_value::<EthRequest>(raw_call.clone()) {
+            Ok(req) => self.on_request(req, &raw_call).await,
+            Err(err) => {
+                let err = err.to_string();
+                if err.contains("unknown variant") {
+                    error!(target: "rpc", ?method, "failed to deserialize method due to unknown variant");
+                    // TODO: when the method is not found, we could just forward it anyway - just so we cover more exotic chains
+                    RpcResponse::new(id, RpcError::method_not_found())
+                } else {
+                    error!(target: "rpc", ?method, ?err, "failed to deserialize method");
+                    RpcResponse::new(id, RpcError::invalid_params(err))
+                }
+            }
+        }
+    }
+
+    async fn on_request(&self, req: EthRequest, raw_call: &Value) -> RpcResponse {
+        // TODO: add cache lookup here
+        let response = self.request_pool.forward_request(raw_call).await;
+        return response;
     }
 }
