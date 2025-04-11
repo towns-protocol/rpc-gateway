@@ -2,7 +2,8 @@ use std::time::Duration;
 
 use crate::config::UpstreamConfig;
 use alloy_chains::Chain;
-use anvil_rpc::response::RpcResponse;
+use alloy_primitives::ChainId;
+use anvil_rpc::response::{ResponseResult, RpcResponse};
 use rand::Rng;
 use reqwest::Client;
 use serde_json::{Value, json};
@@ -45,14 +46,28 @@ impl Upstream {
         self.current_weight = self.config.weight as f64;
     }
 
-    // # TODO: implement
     #[instrument(skip(self))]
     pub async fn readiness_probe(&self) -> bool {
-        return true;
+        let response = match self.forward_once(&CHAIN_ID_REQUEST).await {
+            Ok(response) => response,
+            Err(_) => return false,
+        };
+
+        let success_result = match response.result {
+            ResponseResult::Success(result) => result,
+            ResponseResult::Error(_) => return false,
+        };
+
+        let chain_id: ChainId = match serde_json::from_value(success_result) {
+            Ok(chain_id) => chain_id,
+            Err(_) => return false,
+        };
+
+        return self.chain.id() == chain_id;
     }
 
     // TODO: consider alloy types here.
-    #[instrument(skip(self))]
+    #[instrument()]
     pub async fn forward_once(
         &self,
         raw_call: &Value,

@@ -56,12 +56,12 @@ impl HealthCheckManager {
 
         task::spawn(async move {
             loop {
+                sleep(sleep_duration).await;
                 manager.run_health_checks().await;
                 debug!(
                     "Health checks loop sleeping for {} seconds",
                     sleep_duration.as_secs()
                 );
-                sleep(sleep_duration).await;
             }
         });
     }

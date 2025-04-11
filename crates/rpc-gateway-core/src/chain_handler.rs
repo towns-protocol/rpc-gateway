@@ -92,25 +92,39 @@ impl ChainHandler {
             "params": call.params
         });
 
-        match serde_json::from_value::<EthRequest>(raw_call.clone()) {
+        let response = match serde_json::from_value::<EthRequest>(raw_call.clone()) {
             Ok(req) => self.on_request(req, &raw_call).await,
             Err(err) => {
                 let err = err.to_string();
                 if err.contains("unknown variant") {
                     error!(target: "rpc", ?method, "failed to deserialize method due to unknown variant");
                     // TODO: when the method is not found, we could just forward it anyway - just so we cover more exotic chains
-                    RpcResponse::new(id, RpcError::method_not_found())
+                    return RpcResponse::new(id, RpcError::method_not_found());
                 } else {
                     error!(target: "rpc", ?method, ?err, "failed to deserialize method");
-                    RpcResponse::new(id, RpcError::invalid_params(err))
+                    return RpcResponse::new(id, RpcError::invalid_params(err));
                 }
+            }
+        };
+
+        match response {
+            Ok(response) => response,
+            Err(err) => {
+                error!(target: "rpc", ?method, ?err, "failed to handle method call");
+                // TODO: do better error handling here
+                return RpcResponse::new(id, RpcError::internal_error());
             }
         }
     }
 
-    async fn on_request(&self, req: EthRequest, raw_call: &Value) -> RpcResponse {
+    async fn on_request(
+        &self,
+        req: EthRequest,
+        raw_call: &Value,
+    ) -> Result<RpcResponse, Box<dyn std::error::Error>> {
         // TODO: add cache lookup here
         let response = self.request_pool.forward_request(raw_call).await;
+
         return response;
     }
 }

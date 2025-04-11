@@ -16,6 +16,7 @@ workspace = true
 [dependencies]
 actix-web.workspace = true
 alloy-chains.workspace = true
+alloy-primitives.workspace = true
 anvil-core.workspace = true
 anvil-rpc.workspace = true
 anvil-server.workspace = true

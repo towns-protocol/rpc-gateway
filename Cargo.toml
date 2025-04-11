@@ -39,6 +39,7 @@ tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
 url = "2.5"
 actix-web = "4.4"
 alloy-chains = "0.2.0"
-anvil-core = { git = "https://github.com/foundry-rs/foundry", package = "anvil-core" }
-anvil-rpc = { git = "https://github.com/foundry-rs/foundry", package = "anvil-rpc" }
-anvil-server = { git = "https://github.com/foundry-rs/foundry", package = "anvil-server" }
+anvil-core = { git = "https://github.com/whats-good/foundry", package = "anvil-core" }
+anvil-rpc = { git = "https://github.com/whats-good/foundry", package = "anvil-rpc" }
+anvil-server = { git = "https://github.com/whats-good/foundry", package = "anvil-server" }
+alloy-primitives = "1.0.0"
