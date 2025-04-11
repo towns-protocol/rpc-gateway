@@ -20,3 +20,4 @@
 [ ] Create a method_filter that allows us to hardcode responses for certain methods. For example, eth_chainId or EthSignTypedData, EthSignTypedDataV3, EthSignTypedDataV4, etc.
 [ ] Add dynamic health check updates - if an upstream returns unexpected results, remove it from the list of healthy upstreams and try to reconnect.
 [ ] Don't evict blocks when their block number is not low-enough. Keep them in there. And then eventually double-check that they are still part of the canonical chain, after which you can cache them for a longer time.
+[ ] Return metadata in response headers. For example: cached: true, upstream: http://localhost:8545 etc

@@ -1,5 +1,3 @@
-.PHONY: build docker-build dev docker-run clean docker-clean help test lint coverage
-
 # Docker image name
 IMAGE_NAME := rpc-gateway
 DOCKER_REGISTRY := whatsgood
@@ -80,9 +78,6 @@ test: ## Run all tests.
 .PHONY: coverage
 coverage: ## Generate test coverage report.
 	@echo "Generating test coverage report..."
-	@echo "Installing cargo-tarpaulin if not present..."
-	@cargo install cargo-tarpaulin || true
-	@echo "Running coverage analysis..."
 	cargo tarpaulin --workspace --out Html --output-dir ./target/coverage
 	@echo "Coverage report generated at ./target/coverage/tarpaulin-report.html"
 
