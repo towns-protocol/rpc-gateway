@@ -32,6 +32,7 @@ impl Gateway {
                 config.load_balancing.clone(),
                 config.upstream_health_checks.clone(),
                 config.cache.clone(),
+                config.canned_responses.clone(),
             );
             handlers.insert(chain_id.clone(), handler);
         }

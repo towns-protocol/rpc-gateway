@@ -1,5 +1,5 @@
 use crate::config::{
-    CacheConfig, ChainConfig, ErrorHandlingConfig, LoadBalancingStrategy,
+    CacheConfig, CannedResponseConfig, ChainConfig, ErrorHandlingConfig, LoadBalancingStrategy,
     UpstreamHealthChecksConfig,
 };
 use anvil_core::eth::EthRequest;
@@ -18,6 +18,7 @@ pub struct ChainHandler {
     pub chain_config: Arc<ChainConfig>,
     pub request_pool: ChainRequestPool,
     pub cache: Option<RpcCache>,
+    pub canned_responses_config: CannedResponseConfig,
 }
 use std::sync::LazyLock;
 
@@ -33,6 +34,7 @@ impl ChainHandler {
         load_balancing: LoadBalancingStrategy,
         upstream_health_checks: UpstreamHealthChecksConfig,
         cache_config: CacheConfig,
+        canned_responses: CannedResponseConfig,
     ) -> Self {
         info!(
             chain = ?chain_config.chain,
@@ -66,6 +68,7 @@ impl ChainHandler {
             chain_config: Arc::new(chain_config.clone()),
             request_pool,
             cache,
+            canned_responses_config: canned_responses,
         }
     }
 
@@ -168,13 +171,22 @@ impl ChainHandler {
     }
 
     async fn try_canned_response(&self, req: &EthRequest) -> Option<ResponseResult> {
-        // TODO: make these configurable. especially the web3 client version.
+        if !self.canned_responses_config.enabled {
+            return None;
+        }
+
         match req {
-            EthRequest::Web3ClientVersion(_) => Some(CANNED_RESPONSE_CLIENT_VERSION.clone()),
-            EthRequest::EthChainId(_) => Some(ResponseResult::Success(serde_json::json!(format!(
-                "0x{:x}",
-                self.chain_config.chain.id()
-            )))),
+            EthRequest::Web3ClientVersion(_)
+                if self.canned_responses_config.methods.web3_client_version =>
+            {
+                Some(CANNED_RESPONSE_CLIENT_VERSION.clone())
+            }
+            EthRequest::EthChainId(_) if self.canned_responses_config.methods.eth_chain_id => {
+                Some(ResponseResult::Success(serde_json::json!(format!(
+                    "0x{:x}",
+                    self.chain_config.chain.id()
+                ))))
+            }
             // EthRequest::Web3Sha3(bytes) => todo!(), TODO: self-implement
             // EthRequest::EthNetworkId(_) => todo!(), TODO: self-implement
             _ => None,
