@@ -148,38 +148,22 @@ impl RpcCache {
             EthRequest::EthBlobBaseFee(_) => Some(self.block_time), // TODO: make this configurable
             // EthRequest::EthAccounts(_) => todo!(),
             EthRequest::EthBlockNumber(_) => Some(self.block_time), // TODO: make this configurable
-            EthRequest::EthGetBalance(_, block_id) => {
-                if let Some(block_id) = block_id {
-                    self.get_ttl_from_block_id(block_id)
-                } else {
-                    Some(self.block_time)
-                }
-            }
-            EthRequest::EthGetAccount(_, block_id) => {
-                if let Some(block_id) = block_id {
-                    self.get_ttl_from_block_id(block_id)
-                } else {
-                    Some(self.block_time)
-                }
-            }
-            EthRequest::EthGetStorageAt(_, _, block_id) => {
-                if let Some(block_id) = block_id {
-                    self.get_ttl_from_block_id(block_id)
-                } else {
-                    Some(self.block_time)
-                }
-            }
+            EthRequest::EthGetBalance(_, block_id) => block_id
+                .and_then(|block_id| self.get_ttl_from_block_id(&block_id))
+                .or(Some(self.block_time)),
+            EthRequest::EthGetAccount(_, block_id) => block_id
+                .and_then(|block_id| self.get_ttl_from_block_id(&block_id))
+                .or(Some(self.block_time)),
+            EthRequest::EthGetStorageAt(_, _, block_id) => block_id
+                .and_then(|block_id| self.get_ttl_from_block_id(&block_id))
+                .or(Some(self.block_time)),
             EthRequest::EthGetBlockByHash(_, _) => Some(ONE_YEAR),
             EthRequest::EthGetBlockByNumber(block_number_or_tag, _) => {
                 self.get_ttl_from_block_number_or_tag(block_number_or_tag)
             }
-            EthRequest::EthGetTransactionCount(_, block_id) => {
-                if let Some(block_id) = block_id {
-                    self.get_ttl_from_block_id(block_id)
-                } else {
-                    Some(self.block_time)
-                }
-            }
+            EthRequest::EthGetTransactionCount(_, block_id) => block_id
+                .and_then(|block_id| self.get_ttl_from_block_id(&block_id))
+                .or(Some(self.block_time)),
             EthRequest::EthGetTransactionCountByHash(_) => Some(ONE_YEAR),
             EthRequest::EthGetTransactionCountByNumber(block_number_or_tag) => {
                 self.get_ttl_from_block_number_or_tag(block_number_or_tag)
@@ -188,20 +172,12 @@ impl RpcCache {
             EthRequest::EthGetUnclesCountByNumber(block_number_or_tag) => {
                 self.get_ttl_from_block_number_or_tag(block_number_or_tag)
             }
-            EthRequest::EthGetCodeAt(_, block_id) => {
-                if let Some(block_id) = block_id {
-                    self.get_ttl_from_block_id(block_id)
-                } else {
-                    Some(self.block_time)
-                }
-            }
-            EthRequest::EthGetProof(_, _, block_id) => {
-                if let Some(block_id) = block_id {
-                    self.get_ttl_from_block_id(block_id)
-                } else {
-                    Some(self.block_time)
-                }
-            }
+            EthRequest::EthGetCodeAt(_, block_id) => block_id
+                .and_then(|block_id| self.get_ttl_from_block_id(&block_id))
+                .or(Some(self.block_time)),
+            EthRequest::EthGetProof(_, _, block_id) => block_id
+                .and_then(|block_id| self.get_ttl_from_block_id(&block_id))
+                .or(Some(self.block_time)),
             // EthRequest::EthSign(address, bytes) => todo!(),
             // EthRequest::PersonalSign(bytes, address) => todo!(),
             // EthRequest::EthSignTransaction(_) => todo!(),
@@ -210,22 +186,14 @@ impl RpcCache {
             // EthRequest::EthSignTypedDataV4(address, typed_data) => todo!(),
             // EthRequest::EthSendTransaction(_) => todo!(),
             // EthRequest::EthSendRawTransaction(bytes) => todo!(),
-            EthRequest::EthCall(_, block_id, _) => {
-                if let Some(block_id) = block_id {
-                    self.get_ttl_from_block_id(block_id)
-                } else {
-                    Some(self.block_time)
-                }
-            }
+            EthRequest::EthCall(_, block_id, _) => block_id
+                .and_then(|block_id| self.get_ttl_from_block_id(&block_id))
+                .or(Some(self.block_time)),
             // EthRequest::EthSimulateV1(simulate_payload, block_id) => todo!(),
             // EthRequest::EthCreateAccessList(_, block_id) => todo!(),
-            EthRequest::EthEstimateGas(_, block_id, _) => {
-                if let Some(block_id) = block_id {
-                    self.get_ttl_from_block_id(block_id)
-                } else {
-                    Some(self.block_time)
-                }
-            }
+            EthRequest::EthEstimateGas(_, block_id, _) => block_id
+                .and_then(|block_id| self.get_ttl_from_block_id(&block_id))
+                .or(Some(self.block_time)),
             EthRequest::EthGetTransactionByHash(_) => Some(ONE_YEAR),
             EthRequest::EthGetTransactionByBlockHashAndIndex(_, _) => Some(ONE_YEAR),
             EthRequest::EthGetTransactionByBlockNumberAndIndex(block_number_or_tag, _) => {
