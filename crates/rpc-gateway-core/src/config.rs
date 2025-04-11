@@ -23,6 +23,8 @@ pub struct Config {
     #[serde(default)]
     pub cache: CacheConfig,
     #[serde(default)]
+    pub canned_responses: CannedResponseConfig,
+    #[serde(default)]
     #[serde(with = "chain_map_serde")]
     pub chains: HashMap<u64, ChainConfig>,
 }
@@ -371,6 +373,52 @@ fn default_upstream_liveness_interval() -> Duration {
     Duration::from_secs(300) // 5 minutes
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CannedResponseConfig {
+    #[serde(default = "default_canned_responses_enabled")]
+    pub enabled: bool,
+    #[serde(default)]
+    pub methods: CannedResponseMethods,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CannedResponseMethods {
+    #[serde(default = "default_web3_client_version_enabled")]
+    pub web3_client_version: bool,
+    #[serde(default = "default_eth_chain_id_enabled")]
+    pub eth_chain_id: bool,
+}
+
+fn default_canned_responses_enabled() -> bool {
+    true
+}
+
+fn default_web3_client_version_enabled() -> bool {
+    true
+}
+
+fn default_eth_chain_id_enabled() -> bool {
+    true
+}
+
+impl Default for CannedResponseConfig {
+    fn default() -> Self {
+        Self {
+            enabled: default_canned_responses_enabled(),
+            methods: CannedResponseMethods::default(),
+        }
+    }
+}
+
+impl Default for CannedResponseMethods {
+    fn default() -> Self {
+        Self {
+            web3_client_version: default_web3_client_version_enabled(),
+            eth_chain_id: default_eth_chain_id_enabled(),
+        }
+    }
+}
+
 impl Config {
     pub fn from_yaml_str(s: &str) -> Result<Self, Box<dyn std::error::Error>> {
         let mut config: Config = serde_yaml::from_str(s)?;
@@ -413,6 +461,7 @@ impl Default for Config {
             error_handling: ErrorHandlingConfig::default(),
             logging: LoggingConfig::default(),
             cache: CacheConfig::default(),
+            canned_responses: CannedResponseConfig::default(),
             chains: HashMap::new(),
         }
     }
@@ -692,12 +741,11 @@ mod tests {
         ));
         assert!(matches!(
             config.error_handling,
-            ErrorHandlingConfig::Retry {
-                max_retries,
-                retry_delay,
-                jitter,
-            } if max_retries == 3 && retry_delay == Duration::from_secs(1) && jitter == true
+            ErrorHandlingConfig::FailFast
         ));
+        assert!(config.canned_responses.enabled);
+        assert!(config.canned_responses.methods.web3_client_version);
+        assert!(config.canned_responses.methods.eth_chain_id);
         assert!(config.chains.is_empty());
     }
 
@@ -1302,5 +1350,99 @@ chains:
         assert!(result.is_err());
         let err = result.unwrap_err();
         assert!(err.to_string().contains("invalid duration"));
+    }
+
+    #[test]
+    fn test_canned_responses_default() {
+        let config = Config::default();
+        assert!(
+            config.canned_responses.enabled,
+            "enabled should be true by default"
+        );
+        assert!(
+            config.canned_responses.methods.web3_client_version,
+            "web3_client_version should be true by default"
+        );
+        assert!(
+            config.canned_responses.methods.eth_chain_id,
+            "eth_chain_id should be true by default"
+        );
+    }
+
+    #[test]
+    fn test_canned_responses_from_yaml() {
+        let config_str = r#"
+canned_responses:
+  enabled: true
+  methods:
+    web3_client_version: true
+    eth_chain_id: true
+
+chains:
+  1:
+    upstreams:
+      - url: "http://example.com"
+"#;
+
+        let config = Config::from_yaml_str(config_str).unwrap();
+        assert!(config.canned_responses.enabled);
+        assert!(config.canned_responses.methods.web3_client_version);
+        assert!(config.canned_responses.methods.eth_chain_id);
+    }
+
+    #[test]
+    fn test_canned_responses_disabled() {
+        let config_str = r#"
+canned_responses:
+  enabled: false
+  methods:
+    web3_client_version: true
+    eth_chain_id: true
+
+chains:
+  1:
+    upstreams:
+      - url: "http://example.com"
+"#;
+
+        let config = Config::from_yaml_str(config_str).unwrap();
+        assert!(!config.canned_responses.enabled);
+        assert!(config.canned_responses.methods.web3_client_version);
+        assert!(config.canned_responses.methods.eth_chain_id);
+    }
+
+    #[test]
+    fn test_canned_responses_partial_methods() {
+        let config_str = r#"
+canned_responses:
+  enabled: true
+  methods:
+    web3_client_version: false
+
+chains:
+  1:
+    upstreams:
+      - url: "http://example.com"
+"#;
+
+        let config = Config::from_yaml_str(config_str).unwrap();
+        assert!(config.canned_responses.enabled);
+        assert!(!config.canned_responses.methods.web3_client_version);
+        assert!(config.canned_responses.methods.eth_chain_id); // should default to true
+    }
+
+    #[test]
+    fn test_canned_responses_omitted() {
+        let config_str = r#"
+chains:
+  1:
+    upstreams:
+      - url: "http://example.com"
+"#;
+
+        let config = Config::from_yaml_str(config_str).unwrap();
+        assert!(config.canned_responses.enabled); // should default to true
+        assert!(config.canned_responses.methods.web3_client_version); // should default to true
+        assert!(config.canned_responses.methods.eth_chain_id); // should default to true
     }
 }
