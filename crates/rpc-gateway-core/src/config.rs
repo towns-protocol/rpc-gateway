@@ -246,14 +246,6 @@ fn default_retry_jitter() -> bool {
     true
 }
 
-fn default_error_threshold() -> u32 {
-    5
-}
-
-fn default_error_window() -> Duration {
-    Duration::from_secs(60)
-}
-
 fn default_failure_threshold() -> u32 {
     3
 }

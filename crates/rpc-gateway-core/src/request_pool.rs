@@ -11,7 +11,6 @@ use tracing::{debug, error, instrument, warn};
 
 #[derive(Debug, Clone)]
 pub struct ChainRequestPool {
-    chain_config: Arc<ChainConfig>,
     error_handling: Arc<ErrorHandlingConfig>,
     pub load_balancer: Arc<dyn LoadBalancer>,
 }
@@ -40,7 +39,6 @@ impl ChainRequestPool {
         debug!(upstreams = ?upstreams, "Created upstreams");
 
         Self {
-            chain_config: Arc::new(chain_config),
             error_handling: Arc::new(error_handling),
             load_balancer: create_load_balancer(
                 load_balancing_strategy,

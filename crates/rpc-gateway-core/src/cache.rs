@@ -256,7 +256,7 @@ impl RpcCache {
             // EthRequest::EthGetWork(_) => todo!(),
             // EthRequest::EthSubmitWork(fixed_bytes, fixed_bytes1, fixed_bytes2) => todo!(),
             // EthRequest::EthSubmitHashRate(uint, fixed_bytes) => todo!(),
-            EthRequest::EthFeeHistory(uint, block_number_or_tag, items) => {
+            EthRequest::EthFeeHistory(_, block_number_or_tag, _) => {
                 self.get_ttl_from_block_number_or_tag(block_number_or_tag)
             }
             // EthRequest::EthSyncing(_) => todo!(),

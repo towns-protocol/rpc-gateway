@@ -215,6 +215,6 @@ impl ChainHandler {
             debug!(?req, "internal error, not caching");
         }
 
-        return response.map(|res| res.result);
+        response.map(|res| res.result)
     }
 }

@@ -1,5 +1,4 @@
 use clap::Parser;
-use std::path::PathBuf;
 
 /// RPC Gateway - A high-performance RPC gateway for Ethereum networks
 #[derive(Parser, Debug)]
