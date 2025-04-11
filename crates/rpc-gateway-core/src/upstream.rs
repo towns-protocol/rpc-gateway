@@ -2,12 +2,12 @@ use std::time::Duration;
 
 use crate::config::UpstreamConfig;
 use alloy_chains::Chain;
-use alloy_primitives::ChainId;
+use alloy_primitives::U64;
 use anvil_rpc::response::{ResponseResult, RpcResponse};
 use rand::Rng;
 use reqwest::Client;
 use serde_json::{Value, json};
-use tracing::{error, info, instrument, warn};
+use tracing::{debug, error, info, instrument, warn};
 
 #[derive(Debug, Clone)]
 pub struct Upstream {
@@ -58,12 +58,23 @@ impl Upstream {
             ResponseResult::Error(_) => return false,
         };
 
-        let chain_id: ChainId = match serde_json::from_value(success_result) {
+        let chain_id: U64 = match serde_json::from_value(success_result) {
             Ok(chain_id) => chain_id,
-            Err(_) => return false,
+            Err(_) => {
+                error!(upstream = ?self, "Could not parse chain id in readiness probe");
+                return false;
+            }
         };
 
-        return self.chain.id() == chain_id;
+        let self_chain_id: U64 = U64::from(self.chain.id());
+
+        if self_chain_id == chain_id {
+            debug!(upstream = ?self, "Readiness probe passed");
+            return true;
+        } else {
+            error!(upstream = ?self, expected_chain_id = %self_chain_id, actual_chain_id = %chain_id, "Readiness probe failed. Chain id mismatch");
+            return false;
+        }
     }
 
     // TODO: consider alloy types here.
