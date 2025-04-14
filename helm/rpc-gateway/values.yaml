@@ -13,6 +13,10 @@ image:
   # Overrides the image tag whose default is the chart appVersion.
   # TODO: turn this into "lts" and create a release process
   tag: latest
+  # Optional command override for the container
+  command: []
+  # Optional args override for the container
+  args: []
 
 # This is for the secretes for pulling an image from a private repository more information can be found here: https://kubernetes.io/docs/tasks/configure-pod-container/pull-image-private-registry/
 imagePullSecrets: []

@@ -1,0 +1,26 @@
+rpc-gateway:
+  image:
+    pullPolicy: Always
+  config:
+    server:
+      port: 8080
+      host: "0.0.0.0"
+    logging:
+      console:
+        enabled: true
+        level: debug
+    chains:
+      1:
+        upstreams:
+          - url: "$ALCHEMY_URL"
+            timeout: "10s"
+            weight: 1
+          # - url: "$INFURA_URL"
+          #   timeout: "10s"
+          #   weight: 2
+  env:
+    - name: ALCHEMY_URL
+      valueFrom:
+        secretKeyRef:
+          name: rpc-gateway-upstream-urls
+          key: ALCHEMY_URL
