@@ -309,7 +309,7 @@ fn default_console_format() -> String {
 }
 
 fn default_file_enabled() -> bool {
-    !cfg!(debug_assertions) // Enable file logging by default in release mode
+    false
 }
 
 fn default_file_level() -> String {
@@ -413,7 +413,13 @@ impl Default for CannedResponseMethods {
 
 impl Config {
     pub fn from_yaml_str(s: &str) -> Result<Self, Box<dyn std::error::Error>> {
-        let mut config: Config = serde_yaml::from_str(s)?;
+        let mut config: Config =
+            serde_yaml::from_str(s).map_err(|e| format!("invalid yaml: {}", e))?;
+
+        if config.chains.is_empty() {
+            return Err("chains map cannot be empty".into());
+        }
+
         config.process_urls()?;
         Ok(config)
     }
@@ -446,6 +452,9 @@ impl Config {
 
 impl Default for Config {
     fn default() -> Self {
+        let mut chains = HashMap::new();
+        chains.insert(1, ChainConfig::default());
+
         Self {
             server: ServerConfig::default(),
             load_balancing: LoadBalancingStrategy::default(),
@@ -454,7 +463,7 @@ impl Default for Config {
             logging: LoggingConfig::default(),
             cache: CacheConfig::default(),
             canned_responses: CannedResponseConfig::default(),
-            chains: HashMap::new(),
+            chains,
         }
     }
 }
@@ -638,6 +647,9 @@ mod chain_map_serde {
             v.block_time = v.block_time.or(v.chain.average_blocktime_hint());
             map.insert(key, v);
         }
+        if map.is_empty() {
+            return Err(serde::de::Error::custom("chains map cannot be empty"));
+        }
         Ok(map)
     }
 }
@@ -738,7 +750,9 @@ mod tests {
         assert!(config.canned_responses.enabled);
         assert!(config.canned_responses.methods.web3_client_version);
         assert!(config.canned_responses.methods.eth_chain_id);
-        assert!(config.chains.is_empty());
+        assert!(!config.chains.is_empty());
+        assert_eq!(config.chains.len(), 1);
+        assert!(config.chains.contains_key(&1));
     }
 
     #[test]
@@ -1436,5 +1450,49 @@ chains:
         assert!(config.canned_responses.enabled); // should default to true
         assert!(config.canned_responses.methods.web3_client_version); // should default to true
         assert!(config.canned_responses.methods.eth_chain_id); // should default to true
+    }
+
+    #[test]
+    fn test_empty_chains_map() {
+        let config_str = r#"
+server:
+  host: "localhost"
+  port: 8080
+"#;
+
+        let result = Config::from_yaml_str(config_str);
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(err.to_string().contains("chains map cannot be empty"));
+    }
+
+    #[test]
+    fn test_non_empty_chains_map() {
+        let config_str = r#"
+server:
+  host: "localhost"
+  port: 8080
+
+chains:
+  1:
+    upstreams:
+      - url: "http://example.com"
+"#;
+
+        let config = Config::from_yaml_str(config_str).unwrap();
+        assert!(!config.chains.is_empty());
+        assert_eq!(config.chains.len(), 1);
+        assert!(config.chains.contains_key(&1));
+    }
+
+    #[test]
+    fn test_invalid_yaml() {
+        let config_str = r#"
+invalid_yaml: [
+"#;
+
+        let result = Config::from_yaml_str(config_str);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("invalid yaml"));
     }
 }
