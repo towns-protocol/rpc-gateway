@@ -38,8 +38,7 @@ impl ChainHandler {
     ) -> Self {
         info!(
             chain = ?chain_config.chain,
-            cache_capacity = %cache_config.capacity,
-            cache_enabled = %cache_config.enabled,
+            cache_config = ?cache_config,
             "Creating new ChainHandler"
         );
 
@@ -50,18 +49,25 @@ impl ChainHandler {
             upstream_health_checks,
         );
 
-        let cache = if cache_config.enabled {
-            if let Some(block_time) = chain_config.block_time {
-                Some(RpcCache::new(cache_config.capacity, block_time))
-            } else {
+        let cache = match (cache_config, chain_config.block_time) {
+            (CacheConfig::Disabled, _) => None,
+            (_, None) => {
                 error!(
                     chain = ?chain_config.chain,
                     "Cache enabled but no block time available. Disabling cache."
                 );
                 None
             }
-        } else {
-            None
+            (CacheConfig::Local(config), Some(block_time)) => {
+                Some(RpcCache::new(config.capacity, block_time))
+            }
+            (CacheConfig::Redis(_), _) => {
+                error!(
+                    chain = ?chain_config.chain,
+                    "Redis cache not implemented yet. Disabling cache."
+                );
+                None
+            }
         };
 
         Self {

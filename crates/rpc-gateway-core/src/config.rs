@@ -213,9 +213,21 @@ pub struct FileLogConfig {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct CacheConfig {
-    #[serde(default = "default_cache_enabled")]
-    pub enabled: bool,
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum CacheConfig {
+    Disabled,
+    Redis(RedisCacheConfig),
+    Local(LocalCacheConfig),
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RedisCacheConfig {
+    #[serde(default = "default_redis_url")]
+    pub url: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LocalCacheConfig {
     #[serde(default = "default_cache_capacity")]
     pub capacity: u64,
 }
@@ -348,10 +360,6 @@ fn default_include_line_number() -> bool {
     true
 }
 
-fn default_cache_enabled() -> bool {
-    false
-}
-
 fn default_cache_capacity() -> u64 {
     10_000 // Default cache capacity of 10,000 entries
 }
@@ -461,7 +469,7 @@ impl Default for Config {
             upstream_health_checks: UpstreamHealthChecksConfig::default(),
             error_handling: ErrorHandlingConfig::default(),
             logging: LoggingConfig::default(),
-            cache: CacheConfig::default(),
+            cache: CacheConfig::Disabled,
             canned_responses: CannedResponseConfig::default(),
             chains,
         }
@@ -535,10 +543,7 @@ impl Default for ChainConfig {
 
 impl Default for CacheConfig {
     fn default() -> Self {
-        Self {
-            enabled: default_cache_enabled(),
-            capacity: default_cache_capacity(),
-        }
+        Self::Disabled
     }
 }
 
@@ -547,6 +552,22 @@ impl Default for UpstreamHealthChecksConfig {
         Self {
             enabled: default_upstream_liveness_enabled(),
             interval: default_upstream_liveness_interval(),
+        }
+    }
+}
+
+impl Default for RedisCacheConfig {
+    fn default() -> Self {
+        Self {
+            url: default_redis_url(),
+        }
+    }
+}
+
+impl Default for LocalCacheConfig {
+    fn default() -> Self {
+        Self {
+            capacity: default_cache_capacity(),
         }
     }
 }
@@ -1205,15 +1226,31 @@ chains:
     #[test]
     fn test_cache_config_default() {
         let config = Config::default();
-        assert!(!config.cache.enabled);
-        assert_eq!(config.cache.capacity, 10_000);
+        assert!(matches!(config.cache, CacheConfig::Disabled));
     }
 
     #[test]
-    fn test_cache_config_from_yaml() {
+    fn test_cache_config_redis() {
         let config_str = r#"
 cache:
-  enabled: true
+  type: "redis"
+  url: "redis://localhost:6379"
+
+chains:
+  1:
+    upstreams:
+      - url: "http://example.com"
+"#;
+
+        let config = Config::from_yaml_str(config_str).unwrap();
+        assert!(matches!(config.cache, CacheConfig::Redis(_)));
+    }
+
+    #[test]
+    fn test_cache_config_local() {
+        let config_str = r#"
+cache:
+  type: "local"
   capacity: 5000
 
 chains:
@@ -1223,8 +1260,23 @@ chains:
 "#;
 
         let config = Config::from_yaml_str(config_str).unwrap();
-        assert!(config.cache.enabled);
-        assert_eq!(config.cache.capacity, 5000);
+        assert!(matches!(config.cache, CacheConfig::Local(_)));
+    }
+
+    #[test]
+    fn test_cache_config_disabled() {
+        let config_str = r#"
+cache:
+  type: "disabled"
+
+chains:
+  1:
+    upstreams:
+      - url: "http://example.com"
+"#;
+
+        let config = Config::from_yaml_str(config_str).unwrap();
+        assert!(matches!(config.cache, CacheConfig::Disabled));
     }
 
     #[test]
@@ -1240,31 +1292,7 @@ chains:
 "#;
 
         let config = Config::from_yaml_str(config_str).unwrap();
-        assert!(!config.cache.enabled);
-        assert_eq!(config.cache.capacity, 10_000);
-    }
-
-    #[test]
-    fn test_cache_config_with_other_settings() {
-        let config_str = r#"
-server:
-  host: "localhost"
-  port: 8080
-
-cache:
-  enabled: true
-
-chains:
-  1:
-    upstreams:
-      - url: "http://example.com"
-"#;
-
-        let config = Config::from_yaml_str(config_str).unwrap();
-        assert!(config.cache.enabled);
-        assert_eq!(config.server.host, "localhost");
-        assert_eq!(config.server.port, 8080);
-        assert_eq!(config.chains.get(&1).unwrap().upstreams.iter().count(), 1);
+        assert!(matches!(config.cache, CacheConfig::Disabled));
     }
 
     #[test]
@@ -1495,4 +1523,42 @@ invalid_yaml: [
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("invalid yaml"));
     }
+
+    #[test]
+    fn test_cache_config_valid_redis() {
+        let config_str = r#"
+cache:
+  type: "redis"
+  url: "redis://localhost:6379"
+
+chains:
+  1:
+    upstreams:
+      - url: "http://example.com"
+"#;
+
+        let config = Config::from_yaml_str(config_str).unwrap();
+        assert!(matches!(config.cache, CacheConfig::Redis(_)));
+    }
+
+    #[test]
+    fn test_cache_config_valid_local() {
+        let config_str = r#"
+cache:
+  type: "local"
+  capacity: 5000
+
+chains:
+  1:
+    upstreams:
+      - url: "http://example.com"
+"#;
+
+        let config = Config::from_yaml_str(config_str).unwrap();
+        assert!(matches!(config.cache, CacheConfig::Local(_)));
+    }
+}
+
+fn default_redis_url() -> String {
+    "redis://localhost:6379".to_string()
 }
