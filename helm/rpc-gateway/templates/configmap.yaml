@@ -5,4 +5,6 @@ metadata:
   labels: {{- include "rpc-gateway.labels" . | nindent 4 }}
 data:
   config.yml: |
-    {{- toYaml .Values.config | nindent 4 -}} 
+    target: k8s
+    {{ .Values.config | toYaml | nindent 4 -}}
+
