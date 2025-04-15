@@ -24,3 +24,6 @@ rpc-gateway:
         secretKeyRef:
           name: rpc-gateway-upstream-urls
           key: ALCHEMY_URL
+
+secrets:
+  ALCHEMY_URL: "" # This will be set by the deployment command
