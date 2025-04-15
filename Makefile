@@ -58,45 +58,47 @@ helm-publish: ## Publish the Helm chart to the GitHub Pages repository.
 
 .PHONY: minikube-deploy
 minikube-deploy: ## Deploy the Helm chart to Minikube.
+	@if [ -z "$$ALCHEMY_URL" ]; then \
+		echo "Error: ALCHEMY_URL environment variable is not set"; \
+		exit 1; \
+	fi
 	@echo "Building Helm dependencies..."
 	cd ./helm/minikube-example && helm dependency build
 	@echo "Deploying Helm chart to Minikube..."
 	helm upgrade --install rpc-gateway ./helm/minikube-example \
 		--namespace default \
 		--create-namespace \
-		--set image.pullPolicy=Always
+		--set image.pullPolicy=Always \
+		--set secrets.ALCHEMY_URL="$$ALCHEMY_URL"
+	@$(MAKE) minikube-port-forward
+
+.PHONY: minikube-port-forward
+minikube-port-forward: ## Start port-forwarding for the Minikube gateway.
+	@echo "Starting port-forward..."
+	@if [ -f .port-forward.pid ]; then \
+		kill $$(cat .port-forward.pid) 2>/dev/null || true; \
+		rm .port-forward.pid; \
+	fi
+	@kubectl port-forward svc/rpc-gateway 8080:8080 > /dev/null 2>&1 & \
+		echo $$! > .port-forward.pid
+	@echo "Waiting for pod to be ready..."
+	@kubectl wait --for=condition=ready pod -l app.kubernetes.io/name=rpc-gateway --timeout=60s
 
 .PHONY: minikube-delete
 minikube-delete: ## Delete the Helm chart from Minikube.
 	@echo "Deleting Helm chart from Minikube..."
-	helm uninstall rpc-gateway --namespace default
-
-.PHONY: minikube-set-rpc-urls
-minikube-set-rpc-urls: ## Set RPC URLs in Minikube secret. Reads Alchemy URL from stdin.
-	@echo "Setting RPC URLs in Minikube secret..."
-	@read -p "Enter Alchemy URL (or pipe it in): " ALCHEMY_URL; \
-	if ! kubectl get secret rpc-gateway-upstream-urls >/dev/null 2>&1; then \
-		kubectl create secret generic rpc-gateway-upstream-urls \
-			--from-literal=ALCHEMY_URL="$$ALCHEMY_URL"; \
-	else \
-		kubectl create secret generic rpc-gateway-upstream-urls \
-			--from-literal=ALCHEMY_URL="$$ALCHEMY_URL" \
-			--dry-run=client -o yaml | \
-		kubectl apply -f -; \
+	@if [ -f .port-forward.pid ]; then \
+		kill $$(cat .port-forward.pid) 2>/dev/null || true; \
+		rm .port-forward.pid; \
 	fi
+	helm uninstall rpc-gateway --namespace default
 
 .PHONY: minikube-test
 minikube-test: ## Test the Minikube gateway by sending an eth_getBlock request.
 	@echo "Testing Minikube gateway..."
-	@echo "Starting port-forward..."
-	@kubectl port-forward svc/rpc-gateway 8080:8080 > /dev/null 2>&1 & \
-		PORT_FORWARD_PID=$$!; \
-		sleep 2; \
-		echo "Sending test request..."; \
-		curl -X POST http://localhost:8080/1 \
-			-H "Content-Type: application/json" \
-			-d '{"jsonrpc":"2.0","method":"eth_getBlockByNumber","params":["latest",false],"id":1}'; \
-		kill $$PORT_FORWARD_PID
+	@curl -X POST http://localhost:8080/1 \
+		-H "Content-Type: application/json" \
+		-d '{"jsonrpc":"2.0","method":"eth_getBlockByNumber","params":["latest",false],"id":1}'
 
 ##@ Development
 
