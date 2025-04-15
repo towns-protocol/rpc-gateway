@@ -1081,7 +1081,7 @@ dependencies = [
 [[package]]
 name = "anvil-core"
 version = "1.1.0"
-source = "git+https://github.com/whats-good/foundry?rev=ea33a91e5319dad8ef45873a7aa8f58bf42a6870#ea33a91e5319dad8ef45873a7aa8f58bf42a6870"
+source = "git+https://github.com/whats-good/foundry?rev=b2bdf5ee58387021fe2048d47ea696bffaf44ffd#b2bdf5ee58387021fe2048d47ea696bffaf44ffd"
 dependencies = [
  "alloy-consensus",
  "alloy-dyn-abi",
@@ -1106,7 +1106,7 @@ dependencies = [
 [[package]]
 name = "anvil-rpc"
 version = "1.1.0"
-source = "git+https://github.com/whats-good/foundry#7a33c1ba4714ee253f3da22728695702cb384ae3"
+source = "git+https://github.com/whats-good/foundry?rev=b2bdf5ee58387021fe2048d47ea696bffaf44ffd#b2bdf5ee58387021fe2048d47ea696bffaf44ffd"
 dependencies = [
  "serde",
  "serde_json",
@@ -1115,7 +1115,7 @@ dependencies = [
 [[package]]
 name = "anvil-server"
 version = "1.1.0"
-source = "git+https://github.com/whats-good/foundry#7a33c1ba4714ee253f3da22728695702cb384ae3"
+source = "git+https://github.com/whats-good/foundry?rev=b2bdf5ee58387021fe2048d47ea696bffaf44ffd#b2bdf5ee58387021fe2048d47ea696bffaf44ffd"
 dependencies = [
  "anvil-rpc",
  "async-trait",
@@ -1832,6 +1832,20 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5b63caa9aa9397e2d9480a9b13673856c78d8ac123288526c37d7839f2a86990"
 
 [[package]]
+name = "combine"
+version = "4.6.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ba5a308b75df32fe02788e748662718f03fde005016435c444eea572398219fd"
+dependencies = [
+ "bytes",
+ "futures-core",
+ "memchr",
+ "pin-project-lite",
+ "tokio",
+ "tokio-util",
+]
+
+[[package]]
 name = "comfy-table"
 version = "7.1.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1972,6 +1986,12 @@ name = "crc-catalog"
 version = "2.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "19d374276b40fb8bbdee95aef7c7fa6b5316ec764510eb64b8dd0e2ed0d7e7f5"
+
+[[package]]
+name = "crc16"
+version = "0.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "338089f42c427b86394a5ee60ff321da23a5c89c9d89514c829687b26359fcff"
 
 [[package]]
 name = "crc32fast"
@@ -2589,7 +2609,7 @@ checksum = "00b0228411908ca8685dba7fc2cdd70ec9990a6e753e89b6ac91a84c40fbaf4b"
 [[package]]
 name = "forge-script-sequence"
 version = "1.1.0"
-source = "git+https://github.com/whats-good/foundry?rev=ea33a91e5319dad8ef45873a7aa8f58bf42a6870#ea33a91e5319dad8ef45873a7aa8f58bf42a6870"
+source = "git+https://github.com/whats-good/foundry?rev=b2bdf5ee58387021fe2048d47ea696bffaf44ffd#b2bdf5ee58387021fe2048d47ea696bffaf44ffd"
 dependencies = [
  "alloy-network",
  "alloy-primitives 0.8.25",
@@ -2633,7 +2653,7 @@ dependencies = [
 [[package]]
 name = "foundry-cheatcodes"
 version = "1.1.0"
-source = "git+https://github.com/whats-good/foundry?rev=ea33a91e5319dad8ef45873a7aa8f58bf42a6870#ea33a91e5319dad8ef45873a7aa8f58bf42a6870"
+source = "git+https://github.com/whats-good/foundry?rev=b2bdf5ee58387021fe2048d47ea696bffaf44ffd#b2bdf5ee58387021fe2048d47ea696bffaf44ffd"
 dependencies = [
  "alloy-consensus",
  "alloy-dyn-abi",
@@ -2681,7 +2701,7 @@ dependencies = [
 [[package]]
 name = "foundry-cheatcodes-spec"
 version = "1.1.0"
-source = "git+https://github.com/whats-good/foundry?rev=ea33a91e5319dad8ef45873a7aa8f58bf42a6870#ea33a91e5319dad8ef45873a7aa8f58bf42a6870"
+source = "git+https://github.com/whats-good/foundry?rev=b2bdf5ee58387021fe2048d47ea696bffaf44ffd#b2bdf5ee58387021fe2048d47ea696bffaf44ffd"
 dependencies = [
  "alloy-sol-types",
  "foundry-macros",
@@ -2691,7 +2711,7 @@ dependencies = [
 [[package]]
 name = "foundry-common"
 version = "1.1.0"
-source = "git+https://github.com/whats-good/foundry?rev=ea33a91e5319dad8ef45873a7aa8f58bf42a6870#ea33a91e5319dad8ef45873a7aa8f58bf42a6870"
+source = "git+https://github.com/whats-good/foundry?rev=b2bdf5ee58387021fe2048d47ea696bffaf44ffd#b2bdf5ee58387021fe2048d47ea696bffaf44ffd"
 dependencies = [
  "alloy-consensus",
  "alloy-contract",
@@ -2746,7 +2766,7 @@ dependencies = [
 [[package]]
 name = "foundry-common-fmt"
 version = "1.1.0"
-source = "git+https://github.com/whats-good/foundry?rev=ea33a91e5319dad8ef45873a7aa8f58bf42a6870#ea33a91e5319dad8ef45873a7aa8f58bf42a6870"
+source = "git+https://github.com/whats-good/foundry?rev=b2bdf5ee58387021fe2048d47ea696bffaf44ffd#b2bdf5ee58387021fe2048d47ea696bffaf44ffd"
 dependencies = [
  "alloy-consensus",
  "alloy-dyn-abi",
@@ -2869,7 +2889,7 @@ dependencies = [
 [[package]]
 name = "foundry-config"
 version = "1.1.0"
-source = "git+https://github.com/whats-good/foundry?rev=ea33a91e5319dad8ef45873a7aa8f58bf42a6870#ea33a91e5319dad8ef45873a7aa8f58bf42a6870"
+source = "git+https://github.com/whats-good/foundry?rev=b2bdf5ee58387021fe2048d47ea696bffaf44ffd#b2bdf5ee58387021fe2048d47ea696bffaf44ffd"
 dependencies = [
  "Inflector",
  "alloy-chains 0.1.69",
@@ -2905,7 +2925,7 @@ dependencies = [
 [[package]]
 name = "foundry-evm"
 version = "1.1.0"
-source = "git+https://github.com/whats-good/foundry?rev=ea33a91e5319dad8ef45873a7aa8f58bf42a6870#ea33a91e5319dad8ef45873a7aa8f58bf42a6870"
+source = "git+https://github.com/whats-good/foundry?rev=b2bdf5ee58387021fe2048d47ea696bffaf44ffd#b2bdf5ee58387021fe2048d47ea696bffaf44ffd"
 dependencies = [
  "alloy-dyn-abi",
  "alloy-json-abi",
@@ -2933,7 +2953,7 @@ dependencies = [
 [[package]]
 name = "foundry-evm-abi"
 version = "1.1.0"
-source = "git+https://github.com/whats-good/foundry?rev=ea33a91e5319dad8ef45873a7aa8f58bf42a6870#ea33a91e5319dad8ef45873a7aa8f58bf42a6870"
+source = "git+https://github.com/whats-good/foundry?rev=b2bdf5ee58387021fe2048d47ea696bffaf44ffd#b2bdf5ee58387021fe2048d47ea696bffaf44ffd"
 dependencies = [
  "alloy-primitives 0.8.25",
  "alloy-sol-types",
@@ -2946,7 +2966,7 @@ dependencies = [
 [[package]]
 name = "foundry-evm-core"
 version = "1.1.0"
-source = "git+https://github.com/whats-good/foundry?rev=ea33a91e5319dad8ef45873a7aa8f58bf42a6870#ea33a91e5319dad8ef45873a7aa8f58bf42a6870"
+source = "git+https://github.com/whats-good/foundry?rev=b2bdf5ee58387021fe2048d47ea696bffaf44ffd#b2bdf5ee58387021fe2048d47ea696bffaf44ffd"
 dependencies = [
  "alloy-consensus",
  "alloy-dyn-abi",
@@ -2980,7 +3000,7 @@ dependencies = [
 [[package]]
 name = "foundry-evm-coverage"
 version = "1.1.0"
-source = "git+https://github.com/whats-good/foundry?rev=ea33a91e5319dad8ef45873a7aa8f58bf42a6870#ea33a91e5319dad8ef45873a7aa8f58bf42a6870"
+source = "git+https://github.com/whats-good/foundry?rev=b2bdf5ee58387021fe2048d47ea696bffaf44ffd#b2bdf5ee58387021fe2048d47ea696bffaf44ffd"
 dependencies = [
  "alloy-primitives 0.8.25",
  "eyre",
@@ -2996,7 +3016,7 @@ dependencies = [
 [[package]]
 name = "foundry-evm-fuzz"
 version = "1.1.0"
-source = "git+https://github.com/whats-good/foundry?rev=ea33a91e5319dad8ef45873a7aa8f58bf42a6870#ea33a91e5319dad8ef45873a7aa8f58bf42a6870"
+source = "git+https://github.com/whats-good/foundry?rev=b2bdf5ee58387021fe2048d47ea696bffaf44ffd#b2bdf5ee58387021fe2048d47ea696bffaf44ffd"
 dependencies = [
  "alloy-dyn-abi",
  "alloy-json-abi",
@@ -3021,7 +3041,7 @@ dependencies = [
 [[package]]
 name = "foundry-evm-traces"
 version = "1.1.0"
-source = "git+https://github.com/whats-good/foundry?rev=ea33a91e5319dad8ef45873a7aa8f58bf42a6870#ea33a91e5319dad8ef45873a7aa8f58bf42a6870"
+source = "git+https://github.com/whats-good/foundry?rev=b2bdf5ee58387021fe2048d47ea696bffaf44ffd#b2bdf5ee58387021fe2048d47ea696bffaf44ffd"
 dependencies = [
  "alloy-dyn-abi",
  "alloy-json-abi",
@@ -3072,7 +3092,7 @@ dependencies = [
 [[package]]
 name = "foundry-linking"
 version = "1.1.0"
-source = "git+https://github.com/whats-good/foundry?rev=ea33a91e5319dad8ef45873a7aa8f58bf42a6870#ea33a91e5319dad8ef45873a7aa8f58bf42a6870"
+source = "git+https://github.com/whats-good/foundry?rev=b2bdf5ee58387021fe2048d47ea696bffaf44ffd#b2bdf5ee58387021fe2048d47ea696bffaf44ffd"
 dependencies = [
  "alloy-primitives 0.8.25",
  "foundry-compilers",
@@ -3083,7 +3103,7 @@ dependencies = [
 [[package]]
 name = "foundry-macros"
 version = "1.1.0"
-source = "git+https://github.com/whats-good/foundry?rev=ea33a91e5319dad8ef45873a7aa8f58bf42a6870#ea33a91e5319dad8ef45873a7aa8f58bf42a6870"
+source = "git+https://github.com/whats-good/foundry?rev=b2bdf5ee58387021fe2048d47ea696bffaf44ffd#b2bdf5ee58387021fe2048d47ea696bffaf44ffd"
 dependencies = [
  "proc-macro-error",
  "proc-macro2",
@@ -3094,7 +3114,7 @@ dependencies = [
 [[package]]
 name = "foundry-wallets"
 version = "1.1.0"
-source = "git+https://github.com/whats-good/foundry?rev=ea33a91e5319dad8ef45873a7aa8f58bf42a6870#ea33a91e5319dad8ef45873a7aa8f58bf42a6870"
+source = "git+https://github.com/whats-good/foundry?rev=b2bdf5ee58387021fe2048d47ea696bffaf44ffd#b2bdf5ee58387021fe2048d47ea696bffaf44ffd"
 dependencies = [
  "alloy-consensus",
  "alloy-dyn-abi",
@@ -5095,6 +5115,32 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d3edd4d5d42c92f0a659926464d4cce56b562761267ecf0f469d85b7de384175"
 
 [[package]]
+name = "redis"
+version = "0.29.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1bc42f3a12fd4408ce64d8efef67048a924e543bd35c6591c0447fda9054695f"
+dependencies = [
+ "arc-swap",
+ "bytes",
+ "combine",
+ "crc16",
+ "futures-sink",
+ "futures-util",
+ "itoa",
+ "log",
+ "num-bigint",
+ "percent-encoding",
+ "pin-project-lite",
+ "rand 0.9.0",
+ "ryu",
+ "sha1_smol",
+ "socket2",
+ "tokio",
+ "tokio-util",
+ "url",
+]
+
+[[package]]
 name = "redox_syscall"
 version = "0.5.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5363,7 +5409,6 @@ dependencies = [
  "alloy-dyn-abi",
  "alloy-eips",
  "alloy-primitives 1.0.0",
- "alloy-rpc-types",
  "anvil-core",
  "anvil-rpc",
  "anvil-server",
@@ -5375,6 +5420,7 @@ dependencies = [
  "moka",
  "nonempty",
  "rand 0.9.0",
+ "redis",
  "reqwest",
  "serde",
  "serde_json",
@@ -5913,6 +5959,12 @@ dependencies = [
  "cpufeatures",
  "digest 0.10.7",
 ]
+
+[[package]]
+name = "sha1_smol"
+version = "1.0.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bbfa15b3dddfee50a0fff136974b3e1bde555604ba463834a7eb7deb6417705d"
 
 [[package]]
 name = "sha2"

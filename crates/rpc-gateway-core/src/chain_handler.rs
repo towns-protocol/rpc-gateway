@@ -10,14 +10,14 @@ use serde_json::Value;
 use std::sync::Arc;
 use tracing::{debug, error, info, trace, warn};
 
-use crate::cache::{LocalCache, RpcCache};
+use crate::cache::{LocalCache, RedisCache, RpcCache};
 use crate::request_pool::ChainRequestPool;
 
 #[derive(Debug)]
 pub struct ChainHandler {
     pub chain_config: Arc<ChainConfig>,
     pub request_pool: ChainRequestPool,
-    pub cache: Option<LocalCache>,
+    pub cache: Option<Box<dyn RpcCache>>, // TODO: is this the right way to do this?
     pub canned_responses_config: CannedResponseConfig,
 }
 use std::sync::LazyLock;
@@ -59,14 +59,26 @@ impl ChainHandler {
                 None
             }
             (CacheConfig::Local(config), Some(block_time)) => {
-                Some(LocalCache::new(config.capacity, block_time))
+                let cache: Box<dyn RpcCache> =
+                    Box::new(LocalCache::new(config.capacity, block_time));
+                Some(cache)
             }
-            (CacheConfig::Redis(_), _) => {
-                error!(
-                    chain = ?chain_config.chain,
-                    "Redis cache not implemented yet. Disabling cache."
-                );
-                None
+            (CacheConfig::Redis(config), Some(block_time)) => {
+                match redis::Client::open(config.url) {
+                    Ok(client) => {
+                        let cache: Box<dyn RpcCache> =
+                            Box::new(RedisCache::new(client, block_time));
+                        Some(cache)
+                    }
+                    Err(err) => {
+                        error!(
+                            chain = ?chain_config.chain,
+                            ?err,
+                            "Failed to connect to Redis cache. Disabling cache."
+                        );
+                        panic!("Failed to connect to Redis cache.");
+                    }
+                }
             }
         };
 

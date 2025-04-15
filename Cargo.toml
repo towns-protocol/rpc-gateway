@@ -38,10 +38,9 @@ tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
 url = "2.5"
 actix-web = "4.4"
 alloy-chains = "0.2.0"
-anvil-core = { git = "https://github.com/whats-good/foundry", package = "anvil-core", rev = "ea33a91e5319dad8ef45873a7aa8f58bf42a6870" }
-anvil-rpc = { git = "https://github.com/whats-good/foundry", package = "anvil-rpc" }
-anvil-server = { git = "https://github.com/whats-good/foundry", package = "anvil-server" }
+anvil-core = { git = "https://github.com/whats-good/foundry", package = "anvil-core", rev = "b2bdf5ee58387021fe2048d47ea696bffaf44ffd" }
+anvil-rpc = { git = "https://github.com/whats-good/foundry", package = "anvil-rpc", rev = "b2bdf5ee58387021fe2048d47ea696bffaf44ffd" }
+anvil-server = { git = "https://github.com/whats-good/foundry", package = "anvil-server", rev = "b2bdf5ee58387021fe2048d47ea696bffaf44ffd" }
 alloy-primitives = "1.0.0"
 alloy-dyn-abi = "0.8.25"
 alloy-eips = "0.12.6"
-alloy-rpc-types = "0.12.6"

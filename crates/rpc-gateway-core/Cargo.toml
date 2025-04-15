@@ -19,7 +19,6 @@ alloy-chains.workspace = true
 alloy-primitives.workspace = true
 alloy-eips.workspace = true
 alloy-dyn-abi.workspace = true
-alloy-rpc-types.workspace = true
 anvil-core.workspace = true
 anvil-rpc.workspace = true
 anvil-server.workspace = true
@@ -34,6 +33,7 @@ reqwest.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 serde_yaml.workspace = true
+redis = { version = "0.29.5", features = ["tokio-comp", "cluster-async"] }
 thiserror.workspace = true
 tokio.workspace = true
 tracing.workspace = true

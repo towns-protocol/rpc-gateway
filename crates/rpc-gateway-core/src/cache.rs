@@ -4,19 +4,37 @@ use arc_swap::ArcSwap;
 use async_trait;
 use moka::Expiry;
 use moka::future::Cache;
+use redis::{AsyncCommands, RedisWrite, ToRedisArgs};
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::{
     hash::{DefaultHasher, Hash, Hasher},
     sync::Arc,
     time::{Duration, Instant},
 };
+use tracing::error;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ReqRes {
     pub req: EthRequest,
     pub res: Value,
 }
 
+impl ToRedisArgs for ReqRes {
+    fn write_redis_args<W>(&self, out: &mut W)
+    where
+        W: ?Sized + RedisWrite,
+    {
+        // Serialize the ReqRes to a JSON string
+        let serialized = match serde_json::to_string(self) {
+            Ok(s) => s,
+            Err(_) => return, // Return early if serialization fails
+        };
+
+        // Write the serialized JSON string as a Redis argument
+        out.write_arg(serialized.as_bytes());
+    }
+}
 /// Represents a cache entry
 #[derive(Debug, Clone)]
 pub struct CacheEntry {
@@ -72,7 +90,7 @@ pub struct LocalCache {
 static ONE_YEAR: Duration = Duration::from_secs(31536000);
 
 #[async_trait::async_trait]
-pub trait RpcCache {
+pub trait RpcCache: Send + Sync + Debug {
     async fn get(&self, req: &EthRequest) -> Option<ReqRes>;
     async fn insert(&self, req: &EthRequest, response: &Value, ttl: Duration);
     fn get_block_time(&self) -> &Duration;
@@ -114,7 +132,6 @@ pub trait RpcCache {
         match req {
             // EthRequest::Web3ClientVersion(_) => todo!(), TODO: self-implement
             // EthRequest::Web3Sha3(bytes) => todo!(), TODO: self-implement
-            // EthRequest::EthChainId(_) => todo!(), TODO: self-implement
             // EthRequest::EthNetworkId(_) => todo!(), TODO: self-implement
             // EthRequest::NetListening(_) => todo!(),
             EthRequest::EthGasPrice(_) => Some(block_time.clone()), // TODO: make this configurable
@@ -316,5 +333,86 @@ impl RpcCache for LocalCache {
         };
         let entry = CacheEntry::new(reqres, ttl);
         self.cache.insert(key, entry).await;
+    }
+}
+
+#[derive(Debug)]
+pub struct RedisCache {
+    client: redis::Client,
+    block_time: Duration,
+    /// The latest block number for this chain
+    latest_block_number: ArcSwap<u64>,
+}
+
+impl RedisCache {
+    pub fn new(client: redis::Client, block_time: Duration) -> Self {
+        Self {
+            client,
+            block_time,
+            latest_block_number: ArcSwap::new(Arc::new(0)),
+        }
+    }
+}
+
+#[async_trait::async_trait]
+impl RpcCache for RedisCache {
+    async fn get(&self, req: &EthRequest) -> Option<ReqRes> {
+        let mut hasher = DefaultHasher::new();
+        req.hash(&mut hasher);
+        let key = hasher.finish().to_string();
+        let mut con = self.client.get_multiplexed_async_connection().await.ok()?;
+
+        // Get the serialized value from Redis
+        // TODO: optimize. can we store the connection and reuse it?
+        let value: Result<String, _> = con.get(&key).await;
+        match value {
+            Ok(serialized) => {
+                // Deserialize the JSON string back into a Value
+                // TODO: optimize. can we get the Value type directly from the redis response?
+                match serde_json::from_str(&serialized) {
+                    Ok(value) => Some(ReqRes {
+                        req: req.clone(),
+                        res: value,
+                    }),
+                    Err(_) => None,
+                }
+            }
+            Err(_) => None,
+        }
+    }
+
+    async fn insert(&self, req: &EthRequest, response: &Value, ttl: Duration) {
+        let mut hasher = DefaultHasher::new();
+        req.hash(&mut hasher);
+        let key = hasher.finish().to_string();
+        let reqres = ReqRes {
+            req: req.clone(),
+            res: response.clone(),
+        };
+
+        // TODO: is there a better way to store the conneciton and reuse it?
+        let mut connection = match self.client.get_multiplexed_async_connection().await {
+            Ok(con) => con,
+            Err(err) => {
+                error!("Failed to get connection to redis: {}", err);
+                return;
+            }
+        };
+
+        let result: Result<(), _> = connection.set_ex(&key, reqres, ttl.as_secs()).await;
+        match result {
+            Ok(_) => {}
+            Err(err) => {
+                error!("Failed to store value in redis: {}", err);
+            }
+        }
+    }
+
+    fn get_block_time(&self) -> &Duration {
+        &self.block_time
+    }
+
+    fn get_latest_block_number(&self) -> u64 {
+        **self.latest_block_number.load()
     }
 }
