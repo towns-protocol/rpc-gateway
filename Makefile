@@ -46,22 +46,22 @@ helm-build: ## Build the Helm chart.
 		helm package rpc-gateway && \
 		helm repo index . --url https://whats-good.github.io/rpc-gateway/helm
 
-.PHONY: helm-publish
-helm-publish: ## Publish the Helm chart to the GitHub Pages repository.
-	@echo "Publishing Helm chart..."
-	@if [ -n "$$(git status --porcelain)" ]; then \
-		echo "Error: There are uncommitted changes. Please commit or stash them first."; \
-		exit 1; \
-	fi
-	@CURRENT_BRANCH=$$(git rev-parse --abbrev-ref HEAD) && \
-		if [ "$$CURRENT_BRANCH" != "main" ]; then \
-			echo "Error: Not on main branch. Please checkout main branch first."; \
-			exit 1; \
-		fi
-	@HELM_VERSION=$$(yq '.version' ./helm/rpc-gateway/Chart.yaml) && \
-		echo "Creating git tag helm-v$$HELM_VERSION" && \
-		git tag -a "helm-v$$HELM_VERSION" -m "Helm chart version $$HELM_VERSION" && \
-		git push origin "helm-v$$HELM_VERSION"
+# .PHONY: helm-publish
+# helm-publish: ## Publish the Helm chart to the GitHub Pages repository.
+# 	@echo "Publishing Helm chart..."
+# 	@if [ -n "$$(git status --porcelain)" ]; then \
+# 		echo "Error: There are uncommitted changes. Please commit or stash them first."; \
+# 		exit 1; \
+# 	fi
+# 	@CURRENT_BRANCH=$$(git rev-parse --abbrev-ref HEAD) && \
+# 		if [ "$$CURRENT_BRANCH" != "main" ]; then \
+# 			echo "Error: Not on main branch. Please checkout main branch first."; \
+# 			exit 1; \
+# 		fi
+# 	@HELM_VERSION=$$(yq '.version' ./helm/rpc-gateway/Chart.yaml) && \
+# 		echo "Creating git tag helm-v$$HELM_VERSION" && \
+# 		git tag -a "helm-v$$HELM_VERSION" -m "Helm chart version $$HELM_VERSION" && \
+# 		git push origin "helm-v$$HELM_VERSION"
 
 ##@ Minikube
 
