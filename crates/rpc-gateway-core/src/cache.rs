@@ -90,7 +90,7 @@ pub struct LocalCache {
 static ONE_YEAR: Duration = Duration::from_secs(31536000);
 
 #[async_trait::async_trait]
-pub trait RpcCache: Send + Sync + Debug {
+pub trait RpcCache: Send + Sync + std::fmt::Debug {
     async fn get(&self, req: &EthRequest) -> Option<ReqRes>;
     async fn insert(&self, req: &EthRequest, response: &Value, ttl: Duration);
     fn get_block_time(&self) -> &Duration;
