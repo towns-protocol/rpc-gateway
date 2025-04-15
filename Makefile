@@ -27,7 +27,7 @@ docker-clean: ## Clean up Docker resources.
 docker-publish: ## Publish the Docker image to the Docker Hub repository.
 	@echo "Setting up Docker Buildx for multi-platform builds..."
 	@if ! docker buildx inspect multiplatform >/dev/null 2>&1; then \
-		docker buildx create --name multiplatform --driver docker-container --use; \
+		docker buildx create --name multiplatform --driver docker --use; \
 	fi
 	@echo "Building and pushing multi-platform images..."
 	docker buildx build \
