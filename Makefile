@@ -126,6 +126,7 @@ dev: ## Start development server with file watching.
 	@echo "----------------------------------------"
 	@echo "Starting server..."
 	@mkdir -p logs
+	watchexec -e rs -r cargo run -- -c $(PWD)/example.config.yml
 
 .PHONY: test
 test: ## Run all tests.

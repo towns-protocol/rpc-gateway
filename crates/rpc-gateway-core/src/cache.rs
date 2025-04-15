@@ -1,6 +1,7 @@
 use alloy_eips::{BlockNumberOrTag, eip1898::BlockId};
 use anvil_core::eth::EthRequest;
 use arc_swap::ArcSwap;
+use async_trait;
 use moka::Expiry;
 use moka::future::Cache;
 use serde_json::Value;
@@ -59,7 +60,7 @@ impl Expiry<String, CacheEntry> for TtlExpiry {
 
 /// A cache implementation with field-level TTL
 #[derive(Debug)]
-pub struct RpcCache {
+pub struct LocalCache {
     /// The underlying cache implementation
     cache: Cache<String, CacheEntry>,
     /// The block time for this chain
@@ -70,58 +71,31 @@ pub struct RpcCache {
 
 static ONE_YEAR: Duration = Duration::from_secs(31536000);
 
-impl RpcCache {
-    /// Creates a new cache with the given maximum capacity and block time
-    pub fn new(max_capacity: u64, block_time: Duration) -> Self {
-        let cache = Cache::builder()
-            .max_capacity(max_capacity)
-            .expire_after(TtlExpiry)
-            .build();
-        Self {
-            cache,
-            block_time,
-            latest_block_number: ArcSwap::new(Arc::new(0)),
-        }
-    }
-
-    /// Gets a value from the cache if it exists
-    pub async fn get(&self, req: &EthRequest) -> Option<ReqRes> {
-        let mut hasher = DefaultHasher::new();
-        req.hash(&mut hasher);
-        let key = hasher.finish().to_string();
-        self.cache.get(&key).await.map(|entry| entry.value)
-    }
-
-    /// Inserts a value into the cache with the given TTL
-    pub async fn insert(&self, req: &EthRequest, response: &Value, ttl: Duration) {
-        let mut hasher = DefaultHasher::new();
-        req.hash(&mut hasher);
-        let key = hasher.finish().to_string();
-        let reqres = ReqRes {
-            req: req.clone(),
-            res: response.clone(),
-        };
-        let entry = CacheEntry::new(reqres, ttl);
-        self.cache.insert(key, entry).await;
-    }
+#[async_trait::async_trait]
+pub trait RpcCache {
+    async fn get(&self, req: &EthRequest) -> Option<ReqRes>;
+    async fn insert(&self, req: &EthRequest, response: &Value, ttl: Duration);
+    fn get_block_time(&self) -> &Duration;
+    fn get_latest_block_number(&self) -> u64;
 
     fn get_ttl_from_block_number_or_tag(
         &self,
         block_number_or_tag: &BlockNumberOrTag,
     ) -> Option<Duration> {
+        let block_time = self.get_block_time();
         match block_number_or_tag {
-            BlockNumberOrTag::Latest => Some(self.block_time),
+            BlockNumberOrTag::Latest => Some(block_time.clone()),
             BlockNumberOrTag::Finalized => Some(ONE_YEAR),
-            BlockNumberOrTag::Safe => Some(self.block_time), // TODO: can do better here
+            BlockNumberOrTag::Safe => Some(block_time.clone()), // TODO: can do better here
             BlockNumberOrTag::Earliest => Some(ONE_YEAR),
             BlockNumberOrTag::Pending => None,
             BlockNumberOrTag::Number(number) => {
-                let latest_block_number = **self.latest_block_number.load();
+                let latest_block_number = self.get_latest_block_number();
                 if *number < latest_block_number && latest_block_number - number > 50 {
                     // TODO: can cache block with longer diff a bit longer than the rest. revisit this part.
                     Some(ONE_YEAR)
                 } else {
-                    Some(self.block_time)
+                    Some(block_time.clone())
                 }
             }
         }
@@ -135,35 +109,35 @@ impl RpcCache {
         self.get_ttl_from_block_number_or_tag(block_number_or_tag)
     }
 
-    /// Returns the TTL for a given method if it's cacheable
-    pub fn get_ttl(&self, req: &EthRequest) -> Option<Duration> {
+    fn get_ttl(&self, req: &EthRequest) -> Option<Duration> {
+        let block_time = self.get_block_time();
         match req {
             // EthRequest::Web3ClientVersion(_) => todo!(), TODO: self-implement
             // EthRequest::Web3Sha3(bytes) => todo!(), TODO: self-implement
             // EthRequest::EthChainId(_) => todo!(), TODO: self-implement
             // EthRequest::EthNetworkId(_) => todo!(), TODO: self-implement
             // EthRequest::NetListening(_) => todo!(),
-            EthRequest::EthGasPrice(_) => Some(self.block_time), // TODO: make this configurable
-            EthRequest::EthMaxPriorityFeePerGas(_) => Some(self.block_time), // TODO: make this configurable
-            EthRequest::EthBlobBaseFee(_) => Some(self.block_time), // TODO: make this configurable
+            EthRequest::EthGasPrice(_) => Some(block_time.clone()), // TODO: make this configurable
+            EthRequest::EthMaxPriorityFeePerGas(_) => Some(block_time.clone()), // TODO: make this configurable
+            EthRequest::EthBlobBaseFee(_) => Some(block_time.clone()), // TODO: make this configurable
             // EthRequest::EthAccounts(_) => todo!(),
-            EthRequest::EthBlockNumber(_) => Some(self.block_time), // TODO: make this configurable
+            EthRequest::EthBlockNumber(_) => Some(block_time.clone()), // TODO: make this configurable
             EthRequest::EthGetBalance(_, block_id) => block_id
                 .and_then(|block_id| self.get_ttl_from_block_id(&block_id))
-                .or(Some(self.block_time)),
+                .or(Some(block_time.clone())),
             EthRequest::EthGetAccount(_, block_id) => block_id
                 .and_then(|block_id| self.get_ttl_from_block_id(&block_id))
-                .or(Some(self.block_time)),
+                .or(Some(block_time.clone())),
             EthRequest::EthGetStorageAt(_, _, block_id) => block_id
                 .and_then(|block_id| self.get_ttl_from_block_id(&block_id))
-                .or(Some(self.block_time)),
+                .or(Some(block_time.clone())),
             EthRequest::EthGetBlockByHash(_, _) => Some(ONE_YEAR),
             EthRequest::EthGetBlockByNumber(block_number_or_tag, _) => {
                 self.get_ttl_from_block_number_or_tag(block_number_or_tag)
             }
             EthRequest::EthGetTransactionCount(_, block_id) => block_id
                 .and_then(|block_id| self.get_ttl_from_block_id(&block_id))
-                .or(Some(self.block_time)),
+                .or(Some(block_time.clone())),
             EthRequest::EthGetTransactionCountByHash(_) => Some(ONE_YEAR),
             EthRequest::EthGetTransactionCountByNumber(block_number_or_tag) => {
                 self.get_ttl_from_block_number_or_tag(block_number_or_tag)
@@ -174,10 +148,10 @@ impl RpcCache {
             }
             EthRequest::EthGetCodeAt(_, block_id) => block_id
                 .and_then(|block_id| self.get_ttl_from_block_id(&block_id))
-                .or(Some(self.block_time)),
+                .or(Some(block_time.clone())),
             EthRequest::EthGetProof(_, _, block_id) => block_id
                 .and_then(|block_id| self.get_ttl_from_block_id(&block_id))
-                .or(Some(self.block_time)),
+                .or(Some(block_time.clone())),
             // EthRequest::EthSign(address, bytes) => todo!(),
             // EthRequest::PersonalSign(bytes, address) => todo!(),
             // EthRequest::EthSignTransaction(_) => todo!(),
@@ -188,12 +162,12 @@ impl RpcCache {
             // EthRequest::EthSendRawTransaction(bytes) => todo!(),
             EthRequest::EthCall(_, block_id, _) => block_id
                 .and_then(|block_id| self.get_ttl_from_block_id(&block_id))
-                .or(Some(self.block_time)),
+                .or(Some(block_time.clone())),
             // EthRequest::EthSimulateV1(simulate_payload, block_id) => todo!(),
             // EthRequest::EthCreateAccessList(_, block_id) => todo!(),
             EthRequest::EthEstimateGas(_, block_id, _) => block_id
                 .and_then(|block_id| self.get_ttl_from_block_id(&block_id))
-                .or(Some(self.block_time)),
+                .or(Some(block_time.clone())),
             EthRequest::EthGetTransactionByHash(_) => Some(ONE_YEAR),
             EthRequest::EthGetTransactionByBlockHashAndIndex(_, _) => Some(ONE_YEAR),
             EthRequest::EthGetTransactionByBlockNumberAndIndex(block_number_or_tag, _) => {
@@ -207,19 +181,19 @@ impl RpcCache {
             EthRequest::EthGetTransactionReceipt(_) => {
                 // TODO: this actually depends on the transaction itself. sometimes the ttl needs to be aware of the data we're writing.
                 // We're currently re-using ttls to determine if we should cache the response - or whether the request could even exist in the cache in the first place. So we need to separate the two, and actually take a look at the data we're writing while determining the final ttl.
-                Some(self.block_time)
+                Some(block_time.clone())
             }
             EthRequest::EthGetBlockReceipts(block_id) => self.get_ttl_from_block_id(block_id),
             EthRequest::EthGetUncleByBlockHashAndIndex(_, _) => Some(ONE_YEAR),
             EthRequest::EthGetUncleByBlockNumberAndIndex(block_number_or_tag, _) => {
                 self.get_ttl_from_block_number_or_tag(block_number_or_tag)
             }
-            EthRequest::EthGetLogs(_) => Some(self.block_time),
+            EthRequest::EthGetLogs(_) => Some(block_time.clone()),
             // EthRequest::EthNewFilter(filter) => todo!(),
-            EthRequest::EthGetFilterChanges(_) => Some(self.block_time),
+            EthRequest::EthGetFilterChanges(_) => Some(block_time.clone()),
             // EthRequest::EthNewBlockFilter(_) => todo!(),
             // EthRequest::EthNewPendingTransactionFilter(_) => todo!(),
-            EthRequest::EthGetFilterLogs(_) => Some(self.block_time),
+            EthRequest::EthGetFilterLogs(_) => Some(block_time.clone()),
             // EthRequest::EthUninstallFilter(_) => todo!(),
             // EthRequest::EthGetWork(_) => todo!(),
             // EthRequest::EthSubmitWork(fixed_bytes, fixed_bytes1, fixed_bytes2) => todo!(),
@@ -296,5 +270,51 @@ impl RpcCache {
             // EthRequest::AnvilSetExecutor(_) => todo!(),
             _ => None,
         }
+    }
+}
+
+impl LocalCache {
+    /// Creates a new cache with the given maximum capacity and block time
+    pub fn new(max_capacity: u64, block_time: Duration) -> Self {
+        let cache = Cache::builder()
+            .max_capacity(max_capacity)
+            .expire_after(TtlExpiry)
+            .build();
+        Self {
+            cache,
+            block_time,
+            latest_block_number: ArcSwap::new(Arc::new(0)),
+        }
+    }
+}
+
+#[async_trait::async_trait]
+impl RpcCache for LocalCache {
+    fn get_block_time(&self) -> &Duration {
+        &self.block_time
+    }
+
+    fn get_latest_block_number(&self) -> u64 {
+        **self.latest_block_number.load()
+    }
+
+    async fn get(&self, req: &EthRequest) -> Option<ReqRes> {
+        let mut hasher = DefaultHasher::new();
+        req.hash(&mut hasher);
+        let key = hasher.finish().to_string();
+
+        self.cache.get(&key).await.map(|entry| entry.value)
+    }
+
+    async fn insert(&self, req: &EthRequest, response: &Value, ttl: Duration) {
+        let mut hasher = DefaultHasher::new();
+        req.hash(&mut hasher);
+        let key = hasher.finish().to_string();
+        let reqres = ReqRes {
+            req: req.clone(),
+            res: response.clone(),
+        };
+        let entry = CacheEntry::new(reqres, ttl);
+        self.cache.insert(key, entry).await;
     }
 }

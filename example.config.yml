@@ -16,7 +16,8 @@ upstream_health_checks:
 # jitter: true
 
 cache:
-  enabled: true
+  type: "local"
+  capacity: 10000
 
 logging:
   # console:

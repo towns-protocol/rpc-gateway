@@ -10,14 +10,14 @@ use serde_json::Value;
 use std::sync::Arc;
 use tracing::{debug, error, info, trace, warn};
 
-use crate::cache::RpcCache;
+use crate::cache::{LocalCache, RpcCache};
 use crate::request_pool::ChainRequestPool;
 
 #[derive(Debug)]
 pub struct ChainHandler {
     pub chain_config: Arc<ChainConfig>,
     pub request_pool: ChainRequestPool,
-    pub cache: Option<RpcCache>,
+    pub cache: Option<LocalCache>,
     pub canned_responses_config: CannedResponseConfig,
 }
 use std::sync::LazyLock;
@@ -59,7 +59,7 @@ impl ChainHandler {
                 None
             }
             (CacheConfig::Local(config), Some(block_time)) => {
-                Some(RpcCache::new(config.capacity, block_time))
+                Some(LocalCache::new(config.capacity, block_time))
             }
             (CacheConfig::Redis(_), _) => {
                 error!(

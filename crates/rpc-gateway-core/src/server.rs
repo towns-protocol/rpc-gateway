@@ -22,7 +22,7 @@ async fn handle_rpc_request(
 
     let response = gateway.handle_request(chain_id, request.into_inner()).await;
 
-    info!(
+    debug!(
         chain_id = %chain_id,
         response = ?response,
         "Successfully handled request"

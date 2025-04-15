@@ -12,7 +12,8 @@ error_handling:
   jitter: true
 
 cache:
-  enabled: true
+  type: "local"
+  capacity: 10000
 
 logging:
   console:
