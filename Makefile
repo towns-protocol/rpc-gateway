@@ -71,6 +71,10 @@ minikube-deploy: ## Deploy the Helm chart to Minikube.
 		echo "Error: ALCHEMY_URL environment variable is not set"; \
 		exit 1; \
 	fi
+	@echo "Remove existing dependencies..."
+	rm -rf ./helm/minikube-example/charts || true
+	rm ./helm/minikube-example/Chart.lock || true
+
 	@echo "Building Helm dependencies..."
 	cd ./helm/minikube-example && helm dependency build
 	@echo "Deploying Helm chart to Minikube..."

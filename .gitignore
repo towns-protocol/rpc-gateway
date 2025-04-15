@@ -2,3 +2,5 @@
 .envrc
 /logs
 /.port-forward.pid
+helm/minikube-example/charts
+helm/minikube-example/Chart.lock
