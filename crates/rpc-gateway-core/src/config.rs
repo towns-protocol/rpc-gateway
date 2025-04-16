@@ -224,6 +224,7 @@ pub enum CacheConfig {
 pub struct RedisCacheConfig {
     #[serde(default = "default_redis_url")]
     pub url: String,
+    pub key_prefix: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -560,6 +561,7 @@ impl Default for RedisCacheConfig {
     fn default() -> Self {
         Self {
             url: default_redis_url(),
+            key_prefix: None,
         }
     }
 }

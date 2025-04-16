@@ -369,15 +369,22 @@ pub struct RedisCache {
     /// The latest block number for this chain
     latest_block_number: ArcSwap<u64>,
     chain_id: u64,
+    key_prefix: Option<String>,
 }
 
 impl RedisCache {
-    pub fn new(client: redis::Client, block_time: Duration, chain_id: u64) -> Self {
+    pub fn new(
+        client: redis::Client,
+        block_time: Duration,
+        chain_id: u64,
+        key_prefix: Option<String>,
+    ) -> Self {
         Self {
             client,
             block_time,
             latest_block_number: ArcSwap::new(Arc::new(0)),
             chain_id,
+            key_prefix,
         }
     }
 }
@@ -388,7 +395,12 @@ impl RpcCache for RedisCache {
         let mut hasher = DefaultHasher::new();
         self.chain_id.hash(&mut hasher);
         req.hash(&mut hasher);
-        hasher.finish().to_string()
+        let key = hasher.finish().to_string();
+        if let Some(prefix) = &self.key_prefix {
+            format!("{}:{}", prefix, key)
+        } else {
+            key
+        }
     }
 
     async fn get(&self, req: &EthRequest) -> Option<ReqRes> {

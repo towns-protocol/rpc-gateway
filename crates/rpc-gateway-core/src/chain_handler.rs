@@ -66,8 +66,12 @@ impl ChainHandler {
             (CacheConfig::Redis(config), Some(block_time)) => {
                 match redis::Client::open(config.url) {
                     Ok(client) => {
-                        let cache: Box<dyn RpcCache> =
-                            Box::new(RedisCache::new(client, block_time, chain_config.chain.id()));
+                        let cache: Box<dyn RpcCache> = Box::new(RedisCache::new(
+                            client,
+                            block_time,
+                            chain_config.chain.id(),
+                            config.key_prefix,
+                        ));
                         Some(cache)
                     }
                     Err(err) => {
