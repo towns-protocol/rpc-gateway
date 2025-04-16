@@ -4,7 +4,7 @@ use arc_swap::ArcSwap;
 use async_trait;
 use moka::Expiry;
 use moka::future::Cache;
-use redis::{AsyncCommands, RedisWrite, ToRedisArgs};
+use redis::{AsyncCommands, FromRedisValue, RedisWrite, ToRedisArgs};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::{
@@ -18,6 +18,28 @@ use tracing::error;
 pub struct ReqRes {
     pub req: EthRequest,
     pub res: Value,
+}
+
+impl FromRedisValue for ReqRes {
+    fn from_redis_value(v: &redis::Value) -> redis::RedisResult<Self> {
+        match v {
+            redis::Value::SimpleString(s) => {
+                let reqres: ReqRes = serde_json::from_str(s).map_err(|e| {
+                    redis::RedisError::from((
+                        redis::ErrorKind::IoError,
+                        "Failed to deserialize JSON",
+                        e.to_string(),
+                    ))
+                })?;
+                Ok(reqres)
+            }
+            _ => Err(redis::RedisError::from((
+                redis::ErrorKind::IoError,
+                "Expected a simple string",
+                String::new(),
+            ))),
+        }
+    }
 }
 
 impl ToRedisArgs for ReqRes {
@@ -95,6 +117,7 @@ pub trait RpcCache: Send + Sync + std::fmt::Debug {
     async fn insert(&self, req: &EthRequest, response: &Value, ttl: Duration);
     fn get_block_time(&self) -> &Duration;
     fn get_latest_block_number(&self) -> u64;
+    fn get_key(&self, req: &EthRequest) -> String;
 
     fn get_ttl_from_block_number_or_tag(
         &self,
@@ -315,11 +338,14 @@ impl RpcCache for LocalCache {
         **self.latest_block_number.load()
     }
 
-    async fn get(&self, req: &EthRequest) -> Option<ReqRes> {
+    fn get_key(&self, req: &EthRequest) -> String {
         let mut hasher = DefaultHasher::new();
         req.hash(&mut hasher);
-        let key = hasher.finish().to_string();
+        hasher.finish().to_string()
+    }
 
+    async fn get(&self, req: &EthRequest) -> Option<ReqRes> {
+        let key = self.get_key(req);
         self.cache.get(&key).await.map(|entry| entry.value)
     }
 
@@ -342,49 +368,51 @@ pub struct RedisCache {
     block_time: Duration,
     /// The latest block number for this chain
     latest_block_number: ArcSwap<u64>,
+    chain_id: u64,
 }
 
 impl RedisCache {
-    pub fn new(client: redis::Client, block_time: Duration) -> Self {
+    pub fn new(client: redis::Client, block_time: Duration, chain_id: u64) -> Self {
         Self {
             client,
             block_time,
             latest_block_number: ArcSwap::new(Arc::new(0)),
+            chain_id,
         }
     }
 }
 
 #[async_trait::async_trait]
 impl RpcCache for RedisCache {
-    async fn get(&self, req: &EthRequest) -> Option<ReqRes> {
+    fn get_key(&self, req: &EthRequest) -> String {
         let mut hasher = DefaultHasher::new();
+        self.chain_id.hash(&mut hasher);
         req.hash(&mut hasher);
-        let key = hasher.finish().to_string();
+        hasher.finish().to_string()
+    }
+
+    async fn get(&self, req: &EthRequest) -> Option<ReqRes> {
+        let key = self.get_key(req);
         let mut con = self.client.get_multiplexed_async_connection().await.ok()?;
 
         // Get the serialized value from Redis
         // TODO: optimize. can we store the connection and reuse it?
-        let value: Result<String, _> = con.get(&key).await;
+        let value: Result<Option<ReqRes>, _> = con.get(&key).await;
         match value {
-            Ok(serialized) => {
-                // Deserialize the JSON string back into a Value
-                // TODO: optimize. can we get the Value type directly from the redis response?
-                match serde_json::from_str(&serialized) {
-                    Ok(value) => Some(ReqRes {
-                        req: req.clone(),
-                        res: value,
-                    }),
-                    Err(_) => None,
-                }
+            Ok(reqres) => reqres,
+            Err(e) => {
+                error!(
+                    error = ?e,
+                    req = ?req,
+                    "Redis error",
+                );
+                None
             }
-            Err(_) => None,
         }
     }
 
     async fn insert(&self, req: &EthRequest, response: &Value, ttl: Duration) {
-        let mut hasher = DefaultHasher::new();
-        req.hash(&mut hasher);
-        let key = hasher.finish().to_string();
+        let key = self.get_key(req);
         let reqres = ReqRes {
             req: req.clone(),
             res: response.clone(),
@@ -394,7 +422,10 @@ impl RpcCache for RedisCache {
         let mut connection = match self.client.get_multiplexed_async_connection().await {
             Ok(con) => con,
             Err(err) => {
-                error!("Failed to get connection to redis: {}", err);
+                error!(
+                    error = ?err,
+                    "Failed to establish Redis connection"
+                );
                 return;
             }
         };
@@ -403,7 +434,10 @@ impl RpcCache for RedisCache {
         match result {
             Ok(_) => {}
             Err(err) => {
-                error!("Failed to store value in redis: {}", err);
+                error!(
+                    error = ?err,
+                    "Failed to store value in Redis cache"
+                );
             }
         }
     }
