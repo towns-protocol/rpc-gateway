@@ -18,6 +18,8 @@ pub async fn run() {
     gateway.run_upstream_health_checks().await;
     debug!("Ran upstream health checks");
 
+    // TODO: should optionally refuse to start if there are no healthy upstreams
+
     gateway.start_upstream_health_check_loops();
 
     server::run(gateway, config)

@@ -15,6 +15,11 @@ pub struct ChainRequestPool {
     pub load_balancer: Arc<dyn LoadBalancer>,
 }
 
+pub enum RequestPoolError {
+    NoUpstreamsAvailable,
+    UpstreamError(Box<dyn std::error::Error>),
+}
+
 impl ChainRequestPool {
     pub fn new(
         chain_config: ChainConfig,
@@ -49,15 +54,11 @@ impl ChainRequestPool {
     }
 
     #[instrument(skip(self))]
-    pub async fn forward_request(
-        &self,
-        raw_call: &Value,
-    ) -> Result<RpcResponse, Box<dyn std::error::Error>> {
+    pub async fn forward_request(&self, raw_call: &Value) -> Result<RpcResponse, RequestPoolError> {
         let upstream = match self.load_balancer.select_upstream() {
             Some(upstream) => upstream,
             None => {
-                error!("No upstreams available");
-                return Err("No upstreams available".into());
+                return Err(RequestPoolError::NoUpstreamsAvailable);
             }
         };
         match &*self.error_handling {
@@ -75,16 +76,26 @@ impl ChainRequestPool {
                 upstream
                     .forward_with_retry(raw_call, *max_retries, *retry_delay, *jitter)
                     .await
+                    .map_err(|err| {
+                        error!("Error forwarding request: {}", err);
+                        RequestPoolError::UpstreamError(err)
+                    })
             }
             ErrorHandlingConfig::FailFast { .. } => {
                 debug!("Using fail-fast strategy");
-                upstream.forward_once(raw_call).await
+                upstream.forward_once(raw_call).await.map_err(|err| {
+                    error!("Error forwarding request: {}", err);
+                    RequestPoolError::UpstreamError(err)
+                })
             }
             ErrorHandlingConfig::CircuitBreaker { .. } => {
                 warn!(
                     "Circuit breaker strategy not yet implemented, falling back to single attempt"
                 );
-                upstream.forward_once(raw_call).await
+                upstream.forward_once(raw_call).await.map_err(|err| {
+                    error!("Error forwarding request: {}", err);
+                    RequestPoolError::UpstreamError(err)
+                })
             }
         }
     }

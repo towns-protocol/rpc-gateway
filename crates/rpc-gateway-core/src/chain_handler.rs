@@ -11,7 +11,7 @@ use std::sync::Arc;
 use tracing::{debug, error, info, trace, warn};
 
 use crate::cache::{LocalCache, RedisCache, RpcCache};
-use crate::request_pool::ChainRequestPool;
+use crate::request_pool::{ChainRequestPool, RequestPoolError};
 
 #[derive(Debug)]
 pub struct ChainHandler {
@@ -67,14 +67,14 @@ impl ChainHandler {
                 match redis::Client::open(config.url) {
                     Ok(client) => {
                         let cache: Box<dyn RpcCache> =
-                            Box::new(RedisCache::new(client, block_time));
+                            Box::new(RedisCache::new(client, block_time, chain_config.chain.id()));
                         Some(cache)
                     }
                     Err(err) => {
                         error!(
                             chain = ?chain_config.chain,
-                            ?err,
-                            "Failed to connect to Redis cache. Disabling cache."
+                            err = %err,
+                            "Failed to connect to Redis cache"
                         );
                         panic!("Failed to connect to Redis cache.");
                     }
@@ -109,37 +109,53 @@ impl ChainHandler {
         }
     }
 
+    // TODO: how does anvil convert from RpcMethodCall to EthRequest? Do they also parse-down to json first?
     async fn on_method_call(&self, call: RpcMethodCall) -> RpcResponse {
         trace!(target: "rpc",  id = ?call.id , method = ?call.method, params = ?call.params, "received method call");
         let RpcMethodCall { method, id, .. } = call;
 
         let raw_call = serde_json::json!({
             "id": id,
+            "jsonrpc": "2.0", // TODO: is this part necessary? maybe we can remove the jsonrpc field?
             "method": method,
             "params": call.params
         });
 
-        let response_result = match serde_json::from_value::<EthRequest>(raw_call.clone()) {
-            Ok(req) => self.on_request(req, &raw_call).await,
+        let req = match serde_json::from_value::<EthRequest>(raw_call.clone()) {
+            Ok(req) => req,
             Err(err) => {
                 let err = err.to_string();
                 if err.contains("unknown variant") {
-                    error!(target: "rpc", ?method, "failed to deserialize method due to unknown variant");
+                    error!(
+                        target: "rpc",
+                        method = ?method,
+                        "Failed to deserialize method due to unknown variant"
+                    );
                     // TODO: when the method is not found, we could just forward it anyway - just so we cover more exotic chains
                     return RpcResponse::new(id, RpcError::method_not_found());
                 } else {
-                    error!(target: "rpc", ?method, ?err, "failed to deserialize method");
+                    error!(
+                        target: "rpc",
+                        method = ?method,
+                        error = ?err,
+                        "Failed to deserialize method"
+                    );
                     return RpcResponse::new(id, RpcError::invalid_params(err));
                 }
             }
         };
 
-        match response_result {
+        match self.on_request(req, &raw_call).await {
             Ok(response_result) => RpcResponse::new(id, response_result),
             Err(err) => {
-                error!(target: "rpc", ?method, ?err, "failed to handle method call");
+                error!(
+                    target: "rpc",
+                    method = ?method,
+                    error = ?err,
+                    "Failed to handle method call"
+                );
                 // TODO: do better error handling here
-                return RpcResponse::new(id, RpcError::internal_error());
+                RpcResponse::new(id, RpcError::internal_error())
             }
         }
     }
@@ -225,14 +241,20 @@ impl ChainHandler {
             return Ok(response);
         }
 
-        let response = self.request_pool.forward_request(raw_call).await;
-
-        if let Ok(response) = &response {
-            self.try_cache_write(&req, &response.result).await;
-        } else {
-            debug!(?req, "internal error, not caching");
+        match self.request_pool.forward_request(raw_call).await {
+            Ok(response) => {
+                // TODO: consider deferring this to post-response
+                self.try_cache_write(&req, &response.result).await;
+                Ok(response.result)
+            }
+            Err(RequestPoolError::NoUpstreamsAvailable) => Ok(ResponseResult::Error(
+                RpcError::internal_error_with("No upstreams available"),
+            )),
+            Err(RequestPoolError::UpstreamError(err)) => {
+                // TODO: consider covering these with special error codes
+                error!(?req, ?err, "upstream error");
+                Err(err)
+            }
         }
-
-        response.map(|res| res.result)
     }
 }
