@@ -25,3 +25,5 @@
 [ ] Add cluster mode to redis cache.
 [ ] Add method whitelisting and blacklisting.
 [ ] Readiness probe should check that the cache is ready and accessible.
+[ ] Cache should validate a 100% key match after getting the value via hash
+[ ] Remove all anvil dependencies. Just keep the EthRequest type.

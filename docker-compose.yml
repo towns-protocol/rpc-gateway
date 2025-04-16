@@ -5,16 +5,30 @@ services:
     build: .
     ports:
       - "8080:8080"
-    environment:
-      - ALCHEMY_URL=http://anvil1:8545
-      - INFURA_URL=http://anvil2:8545
     volumes:
       - ./docker.config.yml:/etc/rpc-gateway/config.yml
     depends_on:
+      - redis
       - mainnet
       - polygon
       - arbitrum
   # Ethereum Mainnet (Chain ID 1) node
+
+  redis:
+    image: redis:latest
+    ports:
+      - "6379:6379"
+
+  redis-commander:
+    image: rediscommander/redis-commander:latest
+    container_name: redis-commander
+    ports:
+      - "8081:8081"
+    environment:
+      - REDIS_HOSTS=local:redis:6379
+    depends_on:
+      - redis
+
   mainnet:
     image: ghcr.io/foundry-rs/foundry:latest
     container_name: anvil-mainnet
@@ -26,7 +40,7 @@ services:
         "--chain-id",
         "1",
         "--block-time",
-        "5",
+        "12",
         "--host",
         "0.0.0.0",
         "--port",
@@ -98,7 +112,7 @@ services:
         "--chain-id",
         "42161",
         "--block-time",
-        "2",
+        "1",
         "--host",
         "0.0.0.0",
         "--port",

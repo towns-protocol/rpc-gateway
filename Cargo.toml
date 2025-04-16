@@ -44,3 +44,7 @@ anvil-server = { git = "https://github.com/whats-good/foundry", package = "anvil
 alloy-primitives = "1.0.0"
 alloy-dyn-abi = "0.8.25"
 alloy-eips = "0.12.6"
+
+[profile.dev]
+debug = true
+split-debuginfo = "packed"

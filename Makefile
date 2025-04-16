@@ -7,7 +7,7 @@ DOCKER_IMAGE_VERSION := $(shell git describe --tags --always --dirty)
 # Ensure shell commands exit on error
 .SHELLFLAGS := -e
 
-##@ Build
+##@ build
 .PHONY: build	
 build: ## Build the Rust binary.
 	@echo "Building Rust binary..."
@@ -39,6 +39,7 @@ docker-publish: ## Publish the Docker image to the Docker Hub repository.
 	@echo "Successfully published $(FULL_IMAGE_NAME):$(DOCKER_IMAGE_VERSION) for multiple platforms"
 	@echo "Successfully published $(FULL_IMAGE_NAME):latest for multiple platforms"
 
+
 .PHONY: helm-build
 helm-build: ## Build the Helm chart.
 	@echo "Building Helm chart..."
@@ -63,7 +64,30 @@ helm-build: ## Build the Helm chart.
 # 		git tag -a "helm-v$$HELM_VERSION" -m "Helm chart version $$HELM_VERSION" && \
 # 		git push origin "helm-v$$HELM_VERSION"
 
-##@ Minikube
+
+##@ docker compose
+
+.PHONY: docker-up
+docker-up: ## Start all Docker services.
+	@echo "Starting all Docker services..."
+	docker-compose up -d --build
+
+.PHONY: docker-up-no-gateway
+docker-up-no-gateway: ## Start all Docker services except the gateway.
+	@echo "Starting supporting services (Redis and blockchain nodes)..."
+	docker-compose up -d redis mainnet polygon arbitrum
+	@echo "Waiting for services to be ready..."
+	@echo "Redis will be available at: localhost:6379"
+	@echo "Mainnet node will be available at: localhost:8545"
+	@echo "Polygon node will be available at: localhost:8546"
+	@echo "Arbitrum node will be available at: localhost:8547"
+
+.PHONY: docker-down
+docker-down: ## Stop all Docker services.
+	@echo "Stopping all Docker services..."
+	docker-compose down
+
+##@ minikube
 
 .PHONY: minikube-deploy
 minikube-deploy: ## Deploy the Helm chart to Minikube.
@@ -113,7 +137,7 @@ minikube-test: ## Test the Minikube gateway by sending an eth_getBlock request.
 		-H "Content-Type: application/json" \
 		-d '{"jsonrpc":"2.0","method":"eth_getBlockByNumber","params":["latest",false],"id":1}'
 
-##@ Development
+##@ development
 
 .PHONY: dev
 dev: ## Start development server with file watching.
@@ -149,7 +173,7 @@ lint: ## Run all linting checks.
 	@echo "Running linting checks..."
 	cargo clippy --workspace
 
-##@ Help
+##@ help
 # Show help
 .PHONY: help
 help: ## Display this help.

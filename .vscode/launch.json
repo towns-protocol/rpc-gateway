@@ -1,0 +1,19 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "type": "lldb",
+      "request": "launch",
+      "name": "Cargo Debug RPC Gateway",
+      "program": "${workspaceFolder}/target/debug/rpc-gateway",
+      "args": ["-c", "${workspaceFolder}/debug.config.yml"],
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal",
+      "env": {
+        "RUST_BACKTRACE": "1",
+        "RUST_LOG": "debug"
+      },
+      "sourceLanguages": ["rust"]
+    }
+  ]
+}

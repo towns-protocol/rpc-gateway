@@ -1,0 +1,61 @@
+server:
+  host: "127.0.0.1"
+  port: 8080
+
+load_balancing:
+  strategy: "primary_only"
+
+upstream_health_checks:
+  enabled: true
+  interval: "1m" # More frequent health checks for debugging
+
+error_handling:
+  type: "retry"
+  max_retries: 3
+  retry_delay: "1s"
+  jitter: true
+
+cache:
+  type: "local"
+  capacity: 1000 # Smaller cache for debugging
+
+logging:
+  console:
+    enabled: true
+    level: "debug"
+    format: "text"
+    include_target: true
+    include_thread_ids: true
+    include_thread_names: true
+    include_file: true
+    include_line_number: true
+  file:
+    enabled: true
+    level: "debug"
+    format: "json"
+    path: "logs/debug.log"
+    rotation: "daily"
+    include_target: true
+    include_thread_ids: true
+    include_thread_names: true
+    include_file: true
+    include_line_number: true
+
+chains:
+  1: # Ethereum Mainnet
+    upstreams:
+      - url: "http://localhost:8545"
+        timeout: "10s"
+        weight: 1
+
+  137: # Polygon
+    upstreams:
+      - url: "http://localhost:8546"
+        timeout: "10s"
+        weight: 1
+
+  42161: # Arbitrum
+    upstreams:
+      - url: "http://localhost:8547"
+        timeout: "10s"
+        weight: 1
