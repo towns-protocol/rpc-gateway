@@ -16,8 +16,9 @@ error_handling:
   jitter: true
 
 cache:
-  type: "local"
-  capacity: 1000 # Smaller cache for debugging
+  type: "redis"
+  url: "redis://localhost:6379"
+  key_prefix: "eth_request"
 
 logging:
   console:
@@ -30,7 +31,7 @@ logging:
     include_file: true
     include_line_number: true
   file:
-    enabled: true
+    enabled: false
     level: "debug"
     format: "json"
     path: "logs/debug.log"

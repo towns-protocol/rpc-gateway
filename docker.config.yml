@@ -12,8 +12,8 @@ error_handling:
   jitter: true
 
 cache:
-  type: "local"
-  capacity: 10000
+  type: "redis"
+  url: "redis://redis:6379"
 
 logging:
   console:

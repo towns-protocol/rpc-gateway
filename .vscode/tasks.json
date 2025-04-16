@@ -1,0 +1,12 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "cargo-build-rpc-gateway",
+      "type": "shell",
+      "command": "cargo build --profile dev",
+      "group": "build",
+      "problemMatcher": ["$rustc"]
+    }
+  ]
+}

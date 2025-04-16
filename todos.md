@@ -27,3 +27,5 @@
 [ ] Readiness probe should check that the cache is ready and accessible.
 [ ] Cache should validate a 100% key match after getting the value via hash
 [ ] Remove all anvil dependencies. Just keep the EthRequest type.
+[ ] Allow the user to add "redis-cache-prefix" in the configs
+[ ] Redis cache could use the entire request as the key, and just store the response value instead of storing the req-res pair.

@@ -8,11 +8,11 @@
       "program": "${workspaceFolder}/target/debug/rpc-gateway",
       "args": ["-c", "${workspaceFolder}/debug.config.yml"],
       "cwd": "${workspaceFolder}",
-      "console": "integratedTerminal",
       "env": {
         "RUST_BACKTRACE": "1",
         "RUST_LOG": "debug"
       },
+      "preLaunchTask": "cargo-build-rpc-gateway",
       "sourceLanguages": ["rust"]
     }
   ]

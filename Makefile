@@ -75,12 +75,8 @@ docker-up: ## Start all Docker services.
 .PHONY: docker-up-no-gateway
 docker-up-no-gateway: ## Start all Docker services except the gateway.
 	@echo "Starting supporting services (Redis and blockchain nodes)..."
-	docker-compose up -d redis mainnet polygon arbitrum
+	docker-compose up -d redis redis-commander mainnet polygon arbitrum
 	@echo "Waiting for services to be ready..."
-	@echo "Redis will be available at: localhost:6379"
-	@echo "Mainnet node will be available at: localhost:8545"
-	@echo "Polygon node will be available at: localhost:8546"
-	@echo "Arbitrum node will be available at: localhost:8547"
 
 .PHONY: docker-down
 docker-down: ## Stop all Docker services.
