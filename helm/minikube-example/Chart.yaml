@@ -27,3 +27,6 @@ dependencies:
   - name: rpc-gateway
     version: 0.1.0
     repository: file://../rpc-gateway
+  - name: redis
+    version: 20.12.0
+    repository: https://charts.bitnami.com/bitnami

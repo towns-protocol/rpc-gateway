@@ -24,3 +24,4 @@
 [ ] Cache should actually update the local latest block number.
 [ ] Add cluster mode to redis cache.
 [ ] Add method whitelisting and blacklisting.
+[ ] Readiness probe should check that the cache is ready and accessible.

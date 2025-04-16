@@ -5,6 +5,11 @@ rpc-gateway:
     server:
       port: 8080
       host: "0.0.0.0"
+
+    cache:
+      type: "redis"
+      url: "redis://minikube-example-redis-master.default.svc.cluster.local:6379"
+
     logging:
       console:
         enabled: true
@@ -24,6 +29,27 @@ rpc-gateway:
         secretKeyRef:
           name: rpc-gateway-upstream-urls
           key: ALCHEMY_URL
+
+redis:
+  architecture: standalone
+
+  auth:
+    enabled: false
+
+  master:
+    persistence:
+      enabled: false
+
+    resources:
+      requests:
+        memory: "1Gi"
+        cpu: "500m"
+      limits:
+        memory: "2Gi"
+        cpu: "1"
+
+  replica:
+    replicaCount: 0
 
 secrets:
   ALCHEMY_URL: "" # This will be set by the deployment command

@@ -78,7 +78,7 @@ minikube-deploy: ## Deploy the Helm chart to Minikube.
 	@echo "Building Helm dependencies..."
 	cd ./helm/minikube-example && helm dependency build
 	@echo "Deploying Helm chart to Minikube..."
-	helm upgrade --install rpc-gateway ./helm/minikube-example \
+	helm upgrade --install minikube-example ./helm/minikube-example \
 		--namespace default \
 		--create-namespace \
 		--set image.pullPolicy=Always \
@@ -92,7 +92,7 @@ minikube-port-forward: ## Start port-forwarding for the Minikube gateway.
 		kill $$(cat .port-forward.pid) 2>/dev/null || true; \
 		rm .port-forward.pid; \
 	fi
-	@kubectl port-forward svc/rpc-gateway 8080:8080 > /dev/null 2>&1 & \
+	@kubectl port-forward svc/minikube-example-rpc-gateway 8080:8080 > /dev/null 2>&1 & \
 		echo $$! > .port-forward.pid
 	@echo "Waiting for pod to be ready..."
 	@kubectl wait --for=condition=ready pod -l app.kubernetes.io/name=rpc-gateway --timeout=60s
@@ -104,7 +104,7 @@ minikube-delete: ## Delete the Helm chart from Minikube.
 		kill $$(cat .port-forward.pid) 2>/dev/null || true; \
 		rm .port-forward.pid; \
 	fi
-	helm uninstall rpc-gateway --namespace default
+	helm uninstall minikube-example --namespace default
 
 .PHONY: minikube-test
 minikube-test: ## Test the Minikube gateway by sending an eth_getBlock request.
