@@ -245,6 +245,7 @@ impl ChainHandler {
                 response_source = "canned",
                 response_success = true,
                 request_method = ?method_name,
+                request_params = ?raw_call.get("params"),
                 chain_id = %self.chain_config.chain.id(),
                 "RPC response ready"
             );
@@ -256,6 +257,7 @@ impl ChainHandler {
                 response_source = "cache",
                 response_success = true,
                 request_method = ?method_name,
+                request_params = ?raw_call.get("params"),
                 chain_id = %self.chain_config.chain.id(),
                 "RPC response ready"
             );
@@ -268,6 +270,7 @@ impl ChainHandler {
                     response_source = "upstream",
                     response_success = true,
                     request_method = ?method_name,
+                    request_params = ?raw_call.get("params"),
                     chain_id = %self.chain_config.chain.id(),
                     "RPC response ready"
                 );
@@ -279,6 +282,7 @@ impl ChainHandler {
                     response_source = "error",
                     response_success = false,
                     request_method = ?method_name,
+                    request_params = ?raw_call.get("params"),
                     chain_id = %self.chain_config.chain.id(),
                     error_type = "no_upstreams",
                     "RPC response ready"
@@ -288,10 +292,12 @@ impl ChainHandler {
                 )))
             }
             Err(RequestPoolError::UpstreamError(err)) => {
+                // TODO: how can we only log the params as a debug log while keeping the rest in info?
                 info!(
                     response_source = "error",
                     response_success = false,
                     request_method = ?method_name,
+                    request_params = ?raw_call.get("params"),
                     chain_id = %self.chain_config.chain.id(),
                     error = ?err,
                     "RPC response ready"
