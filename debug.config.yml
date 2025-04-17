@@ -26,10 +26,10 @@ logging:
     level: "debug"
     format: "text"
     include_target: true
-    include_thread_ids: true
-    include_thread_names: true
-    include_file: true
-    include_line_number: true
+    # include_thread_ids: true
+    # include_thread_names: true
+    # include_file: true
+    # include_line_number: true
   file:
     enabled: false
     level: "debug"
@@ -37,10 +37,10 @@ logging:
     path: "logs/debug.log"
     rotation: "daily"
     include_target: true
-    include_thread_ids: true
-    include_thread_names: true
-    include_file: true
-    include_line_number: true
+    # include_thread_ids: true
+    # include_thread_names: true
+    # include_file: true
+    # include_line_number: true
 
 chains:
   1: # Ethereum Mainnet

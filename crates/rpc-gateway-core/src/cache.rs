@@ -27,7 +27,17 @@ impl FromRedisValue for ReqRes {
                 let reqres: ReqRes = serde_json::from_str(s).map_err(|e| {
                     redis::RedisError::from((
                         redis::ErrorKind::IoError,
-                        "Failed to deserialize JSON",
+                        "Failed to deserialize Redis value",
+                        e.to_string(),
+                    ))
+                })?;
+                Ok(reqres)
+            }
+            redis::Value::BulkString(s) => {
+                let reqres: ReqRes = serde_json::from_slice(s).map_err(|e| {
+                    redis::RedisError::from((
+                        redis::ErrorKind::IoError,
+                        "Failed to deserialize Redis value",
                         e.to_string(),
                     ))
                 })?;
@@ -35,8 +45,8 @@ impl FromRedisValue for ReqRes {
             }
             _ => Err(redis::RedisError::from((
                 redis::ErrorKind::IoError,
-                "Expected a simple string",
-                String::new(),
+                "Expected a simple string. Received a: ",
+                format!("{:?}", v),
             ))),
         }
     }
@@ -405,7 +415,13 @@ impl RpcCache for RedisCache {
 
     async fn get(&self, req: &EthRequest) -> Option<ReqRes> {
         let key = self.get_key(req);
-        let mut con = self.client.get_multiplexed_async_connection().await.ok()?;
+        let mut con = match self.client.get_multiplexed_async_connection().await {
+            Ok(con) => con,
+            Err(err) => {
+                error!(error = ?err, "Failed to establish Redis connection");
+                return None;
+            }
+        };
 
         // Get the serialized value from Redis
         // TODO: optimize. can we store the connection and reuse it?

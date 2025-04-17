@@ -87,6 +87,14 @@ docker-down: ## Stop all Docker services.
 
 .PHONY: minikube-deploy
 minikube-deploy: ## Deploy the Helm chart to Minikube.
+	@if ! minikube status > /dev/null 2>&1; then \
+		echo "Error: Minikube is not running. Please start minikube first."; \
+		exit 1; \
+	fi
+	@if [ "$$(kubectl config current-context)" != "minikube" ]; then \
+		echo "Error: kubectl is not connected to minikube. Please run 'kubectl config use-context minikube'"; \
+		exit 1; \
+	fi
 	@if [ -z "$$ALCHEMY_URL" ]; then \
 		echo "Error: ALCHEMY_URL environment variable is not set"; \
 		exit 1; \

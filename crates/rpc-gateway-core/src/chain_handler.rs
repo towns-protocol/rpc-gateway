@@ -237,26 +237,61 @@ impl ChainHandler {
         raw_call: &Value,
     ) -> Result<ResponseResult, Box<dyn std::error::Error>> {
         if let Some(response) = self.try_canned_response(&req).await {
-            debug!(?req, "using canned response");
+            info!(
+                response_source = "canned",
+                response_success = true,
+                request = ?raw_call,
+                chain_id = %self.chain_config.chain.id(),
+                "RPC response ready"
+            );
             return Ok(response);
         }
 
         if let Some(response) = self.try_cache_read(&req).await {
+            info!(
+                response_source = "cache",
+                response_success = true,
+                request = ?raw_call,
+                chain_id = %self.chain_config.chain.id(),
+                "RPC response ready"
+            );
             return Ok(response);
         }
 
         match self.request_pool.forward_request(raw_call).await {
             Ok(response) => {
-                // TODO: consider deferring this to post-response
+                info!(
+                    response_source = "upstream",
+                    response_success = true,
+                    request = ?raw_call,
+                    chain_id = %self.chain_config.chain.id(),
+                    "RPC response ready"
+                );
                 self.try_cache_write(&req, &response.result).await;
                 Ok(response.result)
             }
-            Err(RequestPoolError::NoUpstreamsAvailable) => Ok(ResponseResult::Error(
-                RpcError::internal_error_with("No upstreams available"),
-            )),
+            Err(RequestPoolError::NoUpstreamsAvailable) => {
+                info!(
+                    response_source = "error",
+                    response_success = false,
+                    request = ?raw_call,
+                    chain_id = %self.chain_config.chain.id(),
+                    error_type = "no_upstreams",
+                    "RPC response ready"
+                );
+                Ok(ResponseResult::Error(RpcError::internal_error_with(
+                    "No upstreams available",
+                )))
+            }
             Err(RequestPoolError::UpstreamError(err)) => {
-                // TODO: consider covering these with special error codes
-                error!(?req, ?err, "upstream error");
+                info!(
+                    response_source = "error",
+                    response_success = false,
+                    request = ?raw_call,
+                    chain_id = %self.chain_config.chain.id(),
+                    error = ?err,
+                    "RPC response ready"
+                );
                 Err(err)
             }
         }
