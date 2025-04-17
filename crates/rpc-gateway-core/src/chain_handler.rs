@@ -236,11 +236,15 @@ impl ChainHandler {
         req: EthRequest,
         raw_call: &Value,
     ) -> Result<ResponseResult, Box<dyn std::error::Error>> {
+        let method_name = raw_call
+            .get("method")
+            .and_then(|v| v.as_str())
+            .unwrap_or("unknown");
         if let Some(response) = self.try_canned_response(&req).await {
             info!(
                 response_source = "canned",
                 response_success = true,
-                request = ?raw_call,
+                request_method = ?method_name,
                 chain_id = %self.chain_config.chain.id(),
                 "RPC response ready"
             );
@@ -251,7 +255,7 @@ impl ChainHandler {
             info!(
                 response_source = "cache",
                 response_success = true,
-                request = ?raw_call,
+                request_method = ?method_name,
                 chain_id = %self.chain_config.chain.id(),
                 "RPC response ready"
             );
@@ -263,7 +267,7 @@ impl ChainHandler {
                 info!(
                     response_source = "upstream",
                     response_success = true,
-                    request = ?raw_call,
+                    request_method = ?method_name,
                     chain_id = %self.chain_config.chain.id(),
                     "RPC response ready"
                 );
@@ -274,7 +278,7 @@ impl ChainHandler {
                 info!(
                     response_source = "error",
                     response_success = false,
-                    request = ?raw_call,
+                    request_method = ?method_name,
                     chain_id = %self.chain_config.chain.id(),
                     error_type = "no_upstreams",
                     "RPC response ready"
@@ -287,7 +291,7 @@ impl ChainHandler {
                 info!(
                     response_source = "error",
                     response_success = false,
-                    request = ?raw_call,
+                    request_method = ?method_name,
                     chain_id = %self.chain_config.chain.id(),
                     error = ?err,
                     "RPC response ready"
