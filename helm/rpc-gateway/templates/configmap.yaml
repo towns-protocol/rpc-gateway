@@ -6,5 +6,7 @@ metadata:
 data:
   config.yml: |
     target: k8s
+    {{- if .Values.config }}
     {{ .Values.config | toYaml | nindent 4 -}}
+    {{- end }}
 
