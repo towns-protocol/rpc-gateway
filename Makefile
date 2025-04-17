@@ -49,9 +49,6 @@ helm-build: ## Build the Helm chart.
 
 .PHONY: helm-publish
 helm-publish: ## Publish the Helm chart to the GitHub Pages repository.
-	@echo "Running helm-build first..."
-	$(MAKE) helm-build
-
 	@echo "Publishing Helm chart..."
 	@if [ -n "$$(git status --porcelain)" ]; then \
 		echo "Error: There are uncommitted changes. Please commit or stash them first."; \
