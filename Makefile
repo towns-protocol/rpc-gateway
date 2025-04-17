@@ -2,7 +2,7 @@
 IMAGE_NAME := rpc-gateway
 DOCKER_REGISTRY := whatsgood
 FULL_IMAGE_NAME := $(DOCKER_REGISTRY)/$(IMAGE_NAME)
-DOCKER_IMAGE_VERSION := $(shell git describe --tags --always --dirty)
+DOCKER_IMAGE_VERSION := $(shell git rev-parse --short HEAD)
 
 # Ensure shell commands exit on error
 .SHELLFLAGS := -e
