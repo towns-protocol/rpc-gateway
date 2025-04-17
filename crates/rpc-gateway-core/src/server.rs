@@ -4,35 +4,37 @@ use crate::config::Config;
 use crate::gateway::Gateway;
 use actix_web::{App, HttpResponse, HttpServer, Result, web};
 use anvil_rpc::{self, error::RpcError, request::Request, response::Response};
-use tracing::{debug, info};
+use tracing::{Span, debug, info};
 use tracing_actix_web::TracingLogger;
 
 // TODO: add better error handling.
+#[tracing::instrument(skip(path, body, gateway))]
 async fn handle_rpc_request(
     path: web::Path<u64>,
-    request: web::Json<Request>,
+    body: String,
     gateway: web::Data<Arc<Gateway>>,
 ) -> Result<String> {
     let chain_id = path.into_inner();
-    debug!(
-        chain_id = %chain_id,
-        request = ?request,
-        "Received JSON-RPC request"
-    );
 
-    let response = gateway.handle_request(chain_id, request.into_inner()).await;
+    // Record raw request body in the current span
+    Span::current().record("request_body", &body);
+    Span::current().record("chain_id", &chain_id);
 
-    debug!(
-        chain_id = %chain_id,
-        response = ?response,
-        "Successfully handled request"
-    );
+    let request: Request = serde_json::from_str(&body).map_err(|e| {
+        debug!(error = %e, "Failed to parse request body");
+        actix_web::error::ErrorBadRequest("Invalid JSON-RPC request")
+    })?;
+
+    let response = gateway.handle_request(chain_id, request).await;
 
     let response = response.unwrap_or(Response::error(RpcError::internal_error_with(
         "Internal server error",
     )));
 
     let response_string = serde_json::to_string(&response)?;
+    // Record response body in the current span
+    Span::current().record("response_body", &tracing::field::debug(&response_string));
+
     Ok(response_string)
 }
 

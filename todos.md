@@ -31,3 +31,6 @@
 [ ] Redis cache could use the entire request as the key, and just store the response value instead of storing the req-res pair.
 [ ] Allow optionally whitelisting and blacklisting methods from caching.
 [ ] Allow custom caching ttls for certain methods via config.
+[ ] Why is "eth_getTransactionCount" never cached?
+[ ] Should actix log the request and response bodies?
+[ ] Why are request_body and response_body not showing up in the spans in the console logs?
