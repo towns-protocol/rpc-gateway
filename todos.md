@@ -29,3 +29,5 @@
 [ ] Remove all anvil dependencies. Just keep the EthRequest type.
 [ ] Allow the user to add "redis-cache-prefix" in the configs
 [ ] Redis cache could use the entire request as the key, and just store the response value instead of storing the req-res pair.
+[ ] Allow optionally whitelisting and blacklisting methods from caching.
+[ ] Allow custom caching ttls for certain methods via config.
