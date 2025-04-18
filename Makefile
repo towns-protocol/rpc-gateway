@@ -155,6 +155,9 @@ dev: ## Start development server with file watching.
 	@mkdir -p logs
 	watchexec -e rs -r cargo run -- -c $(PWD)/example.config.yml
 
+load-test:
+	for i in {1..1000}; do curl -X POST -H "Content-Type: application/json" --data '{"jsonrpc":"2.0","method":"eth_blockNumber","params":[],"id":1}' http://localhost:8080/1 > /dev/null 2>&1 & done
+
 .PHONY: test
 test: ## Run all tests.
 	@echo "Running tests..."
