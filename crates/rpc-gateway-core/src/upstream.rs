@@ -17,6 +17,12 @@ pub struct Upstream {
     client: Client,
 }
 
+#[derive(Debug, Clone)]
+pub enum UpstreamError {
+    RequestError(String),
+    ResponseError(String),
+}
+
 use std::sync::LazyLock;
 
 static CHAIN_ID_REQUEST: LazyLock<Value> = LazyLock::new(|| {
@@ -79,10 +85,7 @@ impl Upstream {
 
     // TODO: consider alloy types here.
     #[instrument()]
-    pub async fn forward_once(
-        &self,
-        raw_call: &Value,
-    ) -> Result<RpcResponse, Box<dyn std::error::Error>> {
+    pub async fn forward_once(&self, raw_call: &Value) -> Result<RpcResponse, UpstreamError> {
         // TODO: try parsing the response as an alloy_json_rpc::Response
         // TODO: make sure the upstream errors can be represented as an RpcError.
         // TODO: otherwise, consider just checking if the response is a success or error, and returning it as a Json Value.
@@ -92,10 +95,13 @@ impl Upstream {
             .post(self.config.url.as_str())
             .json(&raw_call)
             .send()
-            .await?;
-
+            .await
+            .map_err(|e| UpstreamError::RequestError(e.to_string()))?;
         // TODO: rebuild your own RpcResponse type. need to be able to access the .result field.
-        let rpc_response = raw_response.json::<RpcResponse>().await?;
+        let rpc_response = raw_response
+            .json::<RpcResponse>()
+            .await
+            .map_err(|e| UpstreamError::ResponseError(e.to_string()))?;
         return Ok(rpc_response);
     }
 
@@ -107,7 +113,7 @@ impl Upstream {
         max_retries: u32,
         retry_delay: Duration,
         jitter: bool,
-    ) -> Result<RpcResponse, Box<dyn std::error::Error>> {
+    ) -> Result<RpcResponse, UpstreamError> {
         let mut last_error = None;
         let mut current_retry = 0;
 

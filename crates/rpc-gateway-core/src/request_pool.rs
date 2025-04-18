@@ -2,12 +2,14 @@ use crate::config::{
     ChainConfig, ErrorHandlingConfig, LoadBalancingStrategy, UpstreamHealthChecksConfig,
 };
 use crate::load_balancer::{LoadBalancer, create_load_balancer};
-use crate::upstream::Upstream;
+use crate::upstream::{Upstream, UpstreamError};
 use anvil_rpc::response::RpcResponse;
 use nonempty::NonEmpty;
 use serde_json::Value;
 use std::sync::Arc;
 use tracing::{debug, error, instrument, warn};
+
+// TODO: maybe request coalescing should be done here?
 
 #[derive(Debug, Clone)]
 pub struct ChainRequestPool {
@@ -15,9 +17,10 @@ pub struct ChainRequestPool {
     pub load_balancer: Arc<dyn LoadBalancer>,
 }
 
+#[derive(Debug, Clone)]
 pub enum RequestPoolError {
     NoUpstreamsAvailable,
-    UpstreamError(Box<dyn std::error::Error>),
+    UpstreamError(UpstreamError),
 }
 
 impl ChainRequestPool {
@@ -77,14 +80,14 @@ impl ChainRequestPool {
                     .forward_with_retry(raw_call, *max_retries, *retry_delay, *jitter)
                     .await
                     .map_err(|err| {
-                        error!("Error forwarding request: {}", err);
+                        error!(?err, "Error forwarding request");
                         RequestPoolError::UpstreamError(err)
                     })
             }
             ErrorHandlingConfig::FailFast { .. } => {
                 debug!("Using fail-fast strategy");
                 upstream.forward_once(raw_call).await.map_err(|err| {
-                    error!("Error forwarding request: {}", err);
+                    error!(?err, "Error forwarding request");
                     RequestPoolError::UpstreamError(err)
                 })
             }
@@ -93,7 +96,7 @@ impl ChainRequestPool {
                     "Circuit breaker strategy not yet implemented, falling back to single attempt"
                 );
                 upstream.forward_once(raw_call).await.map_err(|err| {
-                    error!("Error forwarding request: {}", err);
+                    error!(?err, "Error forwarding request");
                     RequestPoolError::UpstreamError(err)
                 })
             }
