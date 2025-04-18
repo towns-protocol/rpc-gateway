@@ -1,24 +1,35 @@
 use crate::config::{
-    CacheConfig, CannedResponseConfig, ChainConfig, ErrorHandlingConfig, LoadBalancingStrategy,
-    UpstreamHealthChecksConfig,
+    CacheConfig, CannedResponseConfig, ChainConfig, Config, RequestCoalescingConfig,
 };
 use anvil_core::eth::EthRequest;
 use anvil_rpc::error::RpcError;
 use anvil_rpc::request::{RpcCall, RpcMethodCall};
 use anvil_rpc::response::{ResponseResult, RpcResponse};
+use dashmap::DashMap;
+use futures::FutureExt;
+use futures::future::Shared;
 use serde_json::Value;
+use std::future::Future;
+use std::hash::{DefaultHasher, Hash, Hasher};
+use std::pin::Pin;
 use std::sync::Arc;
-use tracing::{debug, error, info, trace, warn};
+use tracing::{debug, error, info, instrument, trace, warn};
 
 use crate::cache::{LocalCache, RedisCache, RpcCache};
 use crate::request_pool::{ChainRequestPool, RequestPoolError};
 
+type BoxedResponseFuture =
+    Pin<Box<dyn Future<Output = Result<ResponseResult, RequestPoolError>> + Send>>;
+type SharedResponseFuture = Shared<BoxedResponseFuture>;
+
 #[derive(Debug)]
 pub struct ChainHandler {
     pub chain_config: Arc<ChainConfig>,
-    pub request_pool: ChainRequestPool,
-    pub cache: Option<Box<dyn RpcCache>>, // TODO: is this the right way to do this?
+    pub request_coalescing_config: RequestCoalescingConfig,
     pub canned_responses_config: CannedResponseConfig,
+    pub request_pool: Arc<ChainRequestPool>,
+    pub cache: Option<Box<dyn RpcCache>>, // TODO: is this the right way to do this?
+    in_flight_requests: DashMap<String, SharedResponseFuture>,
 }
 use std::sync::LazyLock;
 
@@ -28,28 +39,15 @@ static CANNED_RESPONSE_CLIENT_VERSION: LazyLock<ResponseResult> = LazyLock::new(
 });
 
 impl ChainHandler {
-    pub fn new(
-        chain_config: ChainConfig,
-        error_handling: ErrorHandlingConfig,
-        load_balancing: LoadBalancingStrategy,
-        upstream_health_checks: UpstreamHealthChecksConfig,
-        cache_config: CacheConfig,
-        canned_responses: CannedResponseConfig,
-    ) -> Self {
-        info!(
-            chain = ?chain_config.chain,
-            cache_config = ?cache_config,
-            "Creating new ChainHandler"
-        );
-
+    pub fn new(chain_config: &ChainConfig, config: &Config) -> Self {
         let request_pool = ChainRequestPool::new(
             chain_config.clone(),
-            error_handling,
-            load_balancing,
-            upstream_health_checks,
+            config.error_handling.clone(),
+            config.load_balancing.clone(),
+            config.upstream_health_checks.clone(),
         );
 
-        let cache = match (cache_config, chain_config.block_time) {
+        let cache = match (config.cache.clone(), chain_config.block_time) {
             (CacheConfig::Disabled, _) => None,
             (_, None) => {
                 error!(
@@ -88,9 +86,11 @@ impl ChainHandler {
 
         Self {
             chain_config: Arc::new(chain_config.clone()),
-            request_pool,
+            request_pool: Arc::new(request_pool),
             cache,
-            canned_responses_config: canned_responses,
+            request_coalescing_config: config.request_coalescing.clone(),
+            canned_responses_config: config.canned_responses.clone(),
+            in_flight_requests: DashMap::new(),
         }
     }
 
@@ -231,40 +231,58 @@ impl ChainHandler {
         }
     }
 
-    async fn on_request(
+    async fn handle_request_with_coalescing(
         &self,
         req: EthRequest,
         raw_call: &Value,
-    ) -> Result<ResponseResult, Box<dyn std::error::Error>> {
-        let method_name = raw_call
-            .get("method")
-            .and_then(|v| v.as_str())
-            .unwrap_or("unknown");
-        if let Some(response) = self.try_canned_response(&req).await {
+        method_name: &str,
+    ) -> Result<ResponseResult, RequestPoolError> {
+        let mut hasher = DefaultHasher::new();
+        req.hash(&mut hasher);
+        let cache_key = hasher.finish().to_string();
+
+        let (outer_fut, coalesced) = {
+            let request_pool = self.request_pool.clone();
+            let raw_call_clone = raw_call.clone();
+
+            match self.in_flight_requests.entry(cache_key.clone()) {
+                dashmap::Entry::Occupied(e) => {
+                    debug!("returning existing future");
+                    (e.get().clone(), true)
+                }
+                dashmap::Entry::Vacant(e) => {
+                    let inner_fut = async move {
+                        let result = request_pool.forward_request(&raw_call_clone).await;
+                        result.map(|r| r.result)
+                    }
+                    .boxed()
+                    .shared();
+                    debug!("storing new future");
+                    e.insert(inner_fut.clone());
+                    (inner_fut, false)
+                }
+            }
+        };
+
+        // Await the future
+        let result = outer_fut.await;
+
+        // Clean up
+        if coalesced {
             info!(
-                response_source = "canned",
-                response_success = true,
+                response_source = "coalesced",
+                response_success = result.is_ok(),
                 request_method = ?method_name,
                 request_params = ?raw_call.get("params"),
                 chain_id = %self.chain_config.chain.id(),
                 "RPC response ready"
             );
-            return Ok(response);
+            return result;
         }
 
-        if let Some(response) = self.try_cache_read(&req).await {
-            info!(
-                response_source = "cache",
-                response_success = true,
-                request_method = ?method_name,
-                request_params = ?raw_call.get("params"),
-                chain_id = %self.chain_config.chain.id(),
-                "RPC response ready"
-            );
-            return Ok(response);
-        }
+        self.in_flight_requests.remove(&cache_key);
 
-        match self.request_pool.forward_request(raw_call).await {
+        match result {
             Ok(response) => {
                 info!(
                     response_source = "upstream",
@@ -274,8 +292,8 @@ impl ChainHandler {
                     chain_id = %self.chain_config.chain.id(),
                     "RPC response ready"
                 );
-                self.try_cache_write(&req, &response.result).await;
-                Ok(response.result)
+                self.try_cache_write(&req, &response).await;
+                Ok(response)
             }
             Err(RequestPoolError::NoUpstreamsAvailable) => {
                 info!(
@@ -291,7 +309,7 @@ impl ChainHandler {
                     "No upstreams available",
                 )))
             }
-            Err(RequestPoolError::UpstreamError(err)) => {
+            Err(request_pool_error) => {
                 // TODO: how can we only log the params as a debug log while keeping the rest in info?
                 info!(
                     response_source = "error",
@@ -299,11 +317,54 @@ impl ChainHandler {
                     request_method = ?method_name,
                     request_params = ?raw_call.get("params"),
                     chain_id = %self.chain_config.chain.id(),
-                    error = ?err,
+                    error = ?request_pool_error,
                     "RPC response ready"
                 );
-                Err(err)
+                Err(request_pool_error)
             }
         }
+    }
+
+    #[instrument(skip(self, req, raw_call))]
+    async fn on_request(
+        &self,
+        req: EthRequest,
+        raw_call: &Value,
+    ) -> Result<ResponseResult, RequestPoolError> {
+        // TODO: log the actual params in string format here to help understand why getTransactionCount is not getting any cache hits.
+        let method_name = raw_call
+            .get("method")
+            .and_then(|v| v.as_str())
+            .unwrap_or("unknown");
+
+        // Try canned response first
+        if let Some(response) = self.try_canned_response(&req).await {
+            info!(
+                response_source = "canned",
+                response_success = true,
+                request_method = ?method_name,
+                request_params = ?raw_call.get("params"),
+                chain_id = %self.chain_config.chain.id(),
+                "RPC response ready"
+            );
+            return Ok(response);
+        }
+
+        // Try cache read
+        if let Some(response) = self.try_cache_read(&req).await {
+            info!(
+                response_source = "cache",
+                response_success = true,
+                request_method = ?method_name,
+                request_params = ?raw_call.get("params"),
+                chain_id = %self.chain_config.chain.id(),
+                "RPC response ready"
+            );
+            return Ok(response);
+        }
+
+        // self.forward_to_upstream(req, raw_call, method_name).await
+        self.handle_request_with_coalescing(req, raw_call, method_name)
+            .await
     }
 }

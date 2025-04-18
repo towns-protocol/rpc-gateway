@@ -26,21 +26,13 @@ impl Gateway {
 
         // TODO: make sure this chains hashmap is not empty
         for (chain_id, chain_config) in &config.chains {
-            let handler = ChainHandler::new(
-                chain_config.clone(),
-                config.error_handling.clone(),
-                config.load_balancing.clone(),
-                config.upstream_health_checks.clone(),
-                config.cache.clone(),
-                config.canned_responses.clone(),
-            );
+            let handler = ChainHandler::new(chain_config, &config);
             handlers.insert(chain_id.clone(), handler);
         }
 
         Self { handlers, config }
     }
 
-    #[instrument(skip(self))]
     pub fn start_upstream_health_check_loops(&self) {
         if !self.config.upstream_health_checks.enabled {
             warn!("Upstream health checks are disabled. Not starting health check loops.");
@@ -64,7 +56,6 @@ impl Gateway {
         }
     }
 
-    #[instrument(skip(self))]
     pub async fn run_upstream_health_checks(&self) {
         let futures = self.handlers.values().map(|handler| {
             let manager = handler
@@ -81,8 +72,6 @@ impl Gateway {
     }
 
     pub async fn handle_request(&self, chain_id: u64, req: Request) -> Option<Response> {
-        debug!(chain_id = %chain_id, "Forwarding request");
-
         let chain_handler = match self.handlers.get(&chain_id) {
             Some(chain_handler) => chain_handler,
             None => {

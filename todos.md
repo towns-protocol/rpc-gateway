@@ -37,4 +37,8 @@
 [ ] Add a dry-run mode - don't just return data from the cache, but also send it to upstream and compare the results.
 [ ] Why is redis memory not growing like crazy?
 [ ] Why don't we just cache everything for 1 block_time minimum?
-[ ] Add request coalescing via dashmap. Reuse cache ttls for coalescing.
+[ ] When config.cache.enabled is false, we should just treat it as Cache::Disabled.
+[ ] Coalescing should be enabled by default. Make this configurable.
+[ ] Cache checks should happen inside the coalescing block, not before.
+[ ] Response coalescing should have timeouts and ttls.
+[ ] Respect coalescing config in the chain handler. Do not coalesce if the config is disabled.

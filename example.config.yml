@@ -5,6 +5,11 @@ server:
 load_balancing:
   strategy: "primary_only"
 
+request_coalescing:
+  enabled: true
+  # timeout: "block_time"
+  # ttl: "block_time"
+
 upstream_health_checks:
   enabled: true
   interval: "5m"
@@ -16,8 +21,9 @@ upstream_health_checks:
 # jitter: true
 
 cache:
-  type: "local"
-  capacity: 10000
+  type: "disabled"
+  # type: "local"
+  # capacity: 10000
 
 logging:
   # console:
@@ -29,11 +35,11 @@ logging:
   #   include_thread_names: true
   #   include_file: true
   #   include_line_number: true
-  # file:
-  #   enabled: false
-  #   level: "info"
-  #   format: "json"
-  #   path: "logs/rpc-gateway.log"
+  file:
+    enabled: true
+    level: "debug"
+    format: "json"
+    path: "logs/rpc-gateway.log"
   #   rotation: "daily"
   #   include_target: true
   #   include_thread_ids: true

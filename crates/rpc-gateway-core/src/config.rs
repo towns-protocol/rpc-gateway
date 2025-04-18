@@ -25,6 +25,8 @@ pub struct Config {
     #[serde(default)]
     pub canned_responses: CannedResponseConfig,
     #[serde(default)]
+    pub request_coalescing: RequestCoalescingConfig,
+    #[serde(default)]
     #[serde(with = "chain_map_serde")]
     pub chains: HashMap<u64, ChainConfig>,
 }
@@ -472,6 +474,7 @@ impl Default for Config {
             logging: LoggingConfig::default(),
             cache: CacheConfig::Disabled,
             canned_responses: CannedResponseConfig::default(),
+            request_coalescing: RequestCoalescingConfig::default(),
             chains,
         }
     }
@@ -696,6 +699,24 @@ where
 {
     let vec: Vec<_> = upstreams.iter().cloned().collect();
     vec.serialize(serializer)
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RequestCoalescingConfig {
+    #[serde(default = "default_request_coalescing_enabled")]
+    pub enabled: bool,
+}
+
+fn default_request_coalescing_enabled() -> bool {
+    true
+}
+
+impl Default for RequestCoalescingConfig {
+    fn default() -> Self {
+        Self {
+            enabled: default_request_coalescing_enabled(),
+        }
+    }
 }
 
 #[cfg(test)]
@@ -1558,6 +1579,78 @@ chains:
 
         let config = Config::from_yaml_str(config_str).unwrap();
         assert!(matches!(config.cache, CacheConfig::Local(_)));
+    }
+
+    #[test]
+    fn test_request_coalescing_default() {
+        let config = Config::default();
+        assert!(
+            config.request_coalescing.enabled,
+            "enabled should be true by default"
+        );
+    }
+
+    #[test]
+    fn test_request_coalescing_from_yaml() {
+        let config_str = r#"
+request_coalescing:
+  enabled: true
+
+chains:
+  1:
+    upstreams:
+      - url: "http://example.com"
+"#;
+
+        let config = Config::from_yaml_str(config_str).unwrap();
+        assert!(config.request_coalescing.enabled);
+    }
+
+    #[test]
+    fn test_request_coalescing_disabled() {
+        let config_str = r#"
+request_coalescing:
+  enabled: false
+
+chains:
+  1:
+    upstreams:
+      - url: "http://example.com"
+"#;
+
+        let config = Config::from_yaml_str(config_str).unwrap();
+        assert!(!config.request_coalescing.enabled);
+    }
+
+    #[test]
+    fn test_request_coalescing_omitted() {
+        let config_str = r#"
+chains:
+  1:
+    upstreams:
+      - url: "http://example.com"
+"#;
+
+        let config = Config::from_yaml_str(config_str).unwrap();
+        assert!(config.request_coalescing.enabled); // should default to true
+    }
+
+    #[test]
+    fn test_request_coalescing_invalid_value() {
+        let config_str = r#"
+request_coalescing:
+  enabled: "not a boolean"
+
+chains:
+  1:
+    upstreams:
+      - url: "http://example.com"
+"#;
+
+        let result = Config::from_yaml_str(config_str);
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(err.to_string().contains("invalid type"));
     }
 }
 

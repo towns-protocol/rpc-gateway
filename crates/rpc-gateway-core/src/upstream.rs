@@ -84,7 +84,7 @@ impl Upstream {
     }
 
     // TODO: consider alloy types here.
-    #[instrument()]
+    #[instrument(skip(self))]
     pub async fn forward_once(&self, raw_call: &Value) -> Result<RpcResponse, UpstreamError> {
         // TODO: try parsing the response as an alloy_json_rpc::Response
         // TODO: make sure the upstream errors can be represented as an RpcError.

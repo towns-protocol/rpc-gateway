@@ -4,21 +4,18 @@ use crate::config::Config;
 use crate::gateway::Gateway;
 use actix_web::{App, HttpResponse, HttpServer, Result, web};
 use anvil_rpc::{self, error::RpcError, request::Request, response::Response};
-use tracing::{Span, debug, info};
+use tracing::{debug, info};
 use tracing_actix_web::TracingLogger;
 
 // TODO: add better error handling.
-#[tracing::instrument(skip(path, body, gateway))]
+// TODO: this should instrument with debug level, not info.
+#[tracing::instrument(skip(path, gateway))]
 async fn handle_rpc_request(
     path: web::Path<u64>,
     body: String,
     gateway: web::Data<Arc<Gateway>>,
 ) -> Result<String> {
     let chain_id = path.into_inner();
-
-    // Record raw request body in the current span
-    Span::current().record("request_body", &body);
-    Span::current().record("chain_id", &chain_id);
 
     let request: Request = serde_json::from_str(&body).map_err(|e| {
         debug!(error = %e, "Failed to parse request body");
@@ -32,8 +29,6 @@ async fn handle_rpc_request(
     )));
 
     let response_string = serde_json::to_string(&response)?;
-    // Record response body in the current span
-    Span::current().record("response_body", &tracing::field::debug(&response_string));
 
     Ok(response_string)
 }
