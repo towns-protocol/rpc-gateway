@@ -149,19 +149,8 @@ impl ChainHandler {
             }
         };
 
-        match self.on_request(req, &raw_call).await {
-            Ok(response_result) => RpcResponse::new(id, response_result),
-            Err(err) => {
-                error!(
-                    target: "rpc",
-                    method = ?method,
-                    error = ?err,
-                    "Failed to handle method call"
-                );
-                // TODO: do better error handling here
-                RpcResponse::new(id, RpcError::internal_error())
-            }
-        }
+        let response_result = self.on_request(req, &raw_call).await;
+        RpcResponse::new(id, response_result)
     }
 
     async fn try_cache_read(&self, req: &EthRequest) -> Option<ResponseResult> {
@@ -326,11 +315,7 @@ impl ChainHandler {
     }
 
     #[instrument(skip(self, req, raw_call))]
-    async fn on_request(
-        &self,
-        req: EthRequest,
-        raw_call: &Value,
-    ) -> Result<ResponseResult, RequestPoolError> {
+    async fn on_request(&self, req: EthRequest, raw_call: &Value) -> ResponseResult {
         // TODO: log the actual params in string format here to help understand why getTransactionCount is not getting any cache hits.
         let method_name = raw_call
             .get("method")
@@ -338,7 +323,7 @@ impl ChainHandler {
             .unwrap_or("unknown");
 
         // Try canned response first
-        if let Some(response) = self.try_canned_response(&req).await {
+        if let Some(response_result) = self.try_canned_response(&req).await {
             info!(
                 response_source = "canned",
                 response_success = true,
@@ -347,11 +332,11 @@ impl ChainHandler {
                 chain_id = %self.chain_config.chain.id(),
                 "RPC response ready"
             );
-            return Ok(response);
+            return response_result;
         }
 
         // Try cache read
-        if let Some(response) = self.try_cache_read(&req).await {
+        if let Some(response_result) = self.try_cache_read(&req).await {
             info!(
                 response_source = "cache",
                 response_success = true,
@@ -360,11 +345,20 @@ impl ChainHandler {
                 chain_id = %self.chain_config.chain.id(),
                 "RPC response ready"
             );
-            return Ok(response);
+            return response_result;
         }
 
         // self.forward_to_upstream(req, raw_call, method_name).await
-        self.handle_request_with_coalescing(req, raw_call, method_name)
+        match self
+            .handle_request_with_coalescing(req, raw_call, method_name)
             .await
+        {
+            Ok(response) => response,
+            Err(err) => {
+                error!(?err, "failed to handle request");
+                // TODO: do better error handling here
+                ResponseResult::Error(RpcError::internal_error_with(format!("{:?}", err)))
+            }
+        }
     }
 }
