@@ -22,22 +22,22 @@ upstream_health_checks:
 
 cache:
   type: "disabled"
-  # type: "local"
+  # type: "local
   # capacity: 10000
 
 logging:
-  # console:
-  #   enabled: true
-  #   level: "debug"
-  #   format: "text"
-  #   include_target: true
-  #   include_thread_ids: true
-  #   include_thread_names: true
-  #   include_file: true
-  #   include_line_number: true
+  console:
+    enabled: true
+    # rust_log: "debug,rpc_gateway=debug,actix_server=error,actix_web=error,tracing_actix_web=error,redis=error,tokio=error"
+    format: "text"
+    include_target: true
+    include_thread_ids: true
+    include_thread_names: true
+    include_file: true
+    include_line_number: true
   file:
     enabled: true
-    level: "debug"
+    # rust_log: "debug,rpc_gateway=debug,actix_server=error,actix_web=error,tracing_actix_web=error,redis=error,tokio=error"
     format: "json"
     path: "logs/rpc-gateway.log"
   #   rotation: "daily"

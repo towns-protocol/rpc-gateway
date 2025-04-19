@@ -2,10 +2,10 @@ use crate::config::Config;
 use std::sync::Arc;
 use tracing_appender::rolling::{RollingFileAppender, Rotation};
 use tracing_subscriber::{
+    EnvFilter, Layer,
     fmt::{self},
     prelude::*,
     util::SubscriberInitExt,
-    EnvFilter, Layer,
 };
 
 pub fn init_logging(config: &Config) {
@@ -15,7 +15,7 @@ pub fn init_logging(config: &Config) {
     // Configure console logging if enabled
     if config.logging.console.enabled {
         let console_filter = EnvFilter::try_from_default_env()
-            .unwrap_or_else(|_| EnvFilter::new(&config.logging.console.level));
+            .unwrap_or_else(|_| EnvFilter::new(&config.logging.console.rust_log));
 
         let console_layer = fmt::Layer::new()
             .with_target(config.logging.console.include_target)
@@ -34,7 +34,7 @@ pub fn init_logging(config: &Config) {
     // Configure file logging if enabled
     if config.logging.file.enabled {
         let file_filter = EnvFilter::try_from_default_env()
-            .unwrap_or_else(|_| EnvFilter::new(&config.logging.file.level));
+            .unwrap_or_else(|_| EnvFilter::new(&config.logging.file.rust_log));
 
         // Create the log directory if it doesn't exist
         if let Some(parent) = std::path::Path::new(&config.logging.file.path).parent() {

@@ -13,7 +13,7 @@ rpc-gateway:
     logging:
       console:
         enabled: true
-        level: debug
+        rust_log: debug
     chains:
       1:
         upstreams:

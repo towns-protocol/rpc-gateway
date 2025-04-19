@@ -23,7 +23,7 @@ cache:
 logging:
   console:
     enabled: true
-    level: "debug"
+    rust_log: "debug"
     format: "text"
     include_target: true
     # include_thread_ids: true
@@ -32,7 +32,7 @@ logging:
     # include_line_number: true
   file:
     enabled: false
-    level: "debug"
+    rust_log: "debug"
     format: "json"
     path: "logs/debug.log"
     rotation: "daily"

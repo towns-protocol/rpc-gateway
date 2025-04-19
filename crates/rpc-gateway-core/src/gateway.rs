@@ -9,7 +9,7 @@ use futures::{
     future::{self, join_all},
 };
 use std::collections::HashMap;
-use tracing::{debug, info, instrument, warn};
+use tracing::{debug, info, warn};
 
 use crate::chain_handler::ChainHandler;
 

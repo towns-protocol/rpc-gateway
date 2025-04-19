@@ -174,8 +174,8 @@ pub struct LoggingConfig {
 pub struct ConsoleLogConfig {
     #[serde(default = "default_console_enabled")]
     pub enabled: bool,
-    #[serde(default = "default_console_level")]
-    pub level: String,
+    #[serde(default = "default_rust_log")]
+    pub rust_log: String,
     #[serde(default = "default_console_format")]
     pub format: String,
     #[serde(default = "default_include_target")]
@@ -194,8 +194,8 @@ pub struct ConsoleLogConfig {
 pub struct FileLogConfig {
     #[serde(default = "default_file_enabled")]
     pub enabled: bool,
-    #[serde(default = "default_file_level")]
-    pub level: String,
+    #[serde(default = "default_rust_log")]
+    pub rust_log: String,
     #[serde(default = "default_file_format")]
     pub format: String,
     #[serde(default = "default_file_path")]
@@ -307,11 +307,13 @@ fn default_console_enabled() -> bool {
     true
 }
 
-fn default_console_level() -> String {
+fn default_rust_log() -> String {
     if cfg!(debug_assertions) {
-        "debug".to_string()
+        // Development environment - more verbose logging
+        "error,rpc_gateway_core=info".to_string()
     } else {
-        "info".to_string()
+        // Production environment - more conservative logging
+        "warn,rpc_gateway_core=info".to_string()
     }
 }
 
@@ -325,10 +327,6 @@ fn default_console_format() -> String {
 
 fn default_file_enabled() -> bool {
     false
-}
-
-fn default_file_level() -> String {
-    "info".to_string()
 }
 
 fn default_file_format() -> String {
@@ -502,7 +500,7 @@ impl Default for ConsoleLogConfig {
     fn default() -> Self {
         Self {
             enabled: default_console_enabled(),
-            level: default_console_level(),
+            rust_log: default_rust_log(),
             format: default_console_format(),
             include_target: default_include_target(),
             include_thread_ids: default_include_thread_ids(),
@@ -517,7 +515,7 @@ impl Default for FileLogConfig {
     fn default() -> Self {
         Self {
             enabled: default_file_enabled(),
-            level: default_file_level(),
+            rust_log: default_rust_log(),
             format: default_file_format(),
             path: default_file_path(),
             rotation: default_file_rotation(),
