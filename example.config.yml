@@ -14,6 +14,11 @@ upstream_health_checks:
   enabled: true
   interval: "5m"
 
+metrics:
+  enabled: true
+  host: "0.0.0.0"
+  port: 8082
+
 # error_handling:
 # type: "retry"
 # max_retries: 3

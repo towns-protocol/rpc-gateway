@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
-use crate::config::Config;
 use crate::gateway::Gateway;
+use crate::{config::Config, metrics::start_metrics_server};
 use actix_web::{App, HttpResponse, HttpServer, Result, web};
 use anvil_rpc::{self, error::RpcError, request::Request, response::Response};
 use tracing::{debug, info};
@@ -51,6 +51,8 @@ pub async fn run(gateway: Gateway, config: Config) -> std::io::Result<()> {
     );
 
     let gateway = Arc::new(gateway);
+
+    start_metrics_server(&config.metrics);
 
     HttpServer::new(move || {
         App::new()

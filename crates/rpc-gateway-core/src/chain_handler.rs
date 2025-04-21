@@ -8,12 +8,14 @@ use anvil_rpc::response::{ResponseResult, RpcResponse};
 use dashmap::DashMap;
 use futures::FutureExt;
 use futures::future::Shared;
+use metrics::counter;
 use serde_json::Value;
+use std::borrow::Cow;
 use std::future::Future;
 use std::hash::{DefaultHasher, Hash, Hasher};
 use std::pin::Pin;
 use std::sync::Arc;
-use tracing::{debug, error, info, instrument, trace, warn};
+use tracing::{debug, error, instrument, trace, warn};
 
 use crate::cache::{LocalCache, RedisCache, RpcCache};
 use crate::request_pool::{ChainRequestPool, RequestPoolError};
@@ -25,6 +27,18 @@ enum ChainHandlerResponseSource {
     Cached,
     Canned,
     PreUpstreamError,
+}
+
+impl From<ChainHandlerResponseSource> for Cow<'static, str> {
+    fn from(source: ChainHandlerResponseSource) -> Self {
+        Cow::Borrowed(match source {
+            ChainHandlerResponseSource::Upstream => "upstream",
+            ChainHandlerResponseSource::Coalesced => "coalesced",
+            ChainHandlerResponseSource::Cached => "cached",
+            ChainHandlerResponseSource::Canned => "canned",
+            ChainHandlerResponseSource::PreUpstreamError => "pre_upstream_error",
+        })
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -164,13 +178,30 @@ impl ChainHandler {
         };
 
         let chain_handler_response = self.on_request(&req, raw_call).await;
-
-        info!(
+        debug!(
             response = ?chain_handler_response,
             "RPC response ready"
         );
 
-        RpcResponse::new(id, chain_handler_response.response_result)
+        let chain_id = self.chain_config.chain.id().to_string();
+        let source: Cow<'static, str> = chain_handler_response.response_source.into(); // TODO: is this the right way to do this?
+        let success = match chain_handler_response.response_result {
+            ResponseResult::Success(_) => "true",
+            ResponseResult::Error(_) => "false",
+        };
+
+        // TODO: how can i use the x.y namespacing here? they get overwritten to x_y_z
+        counter!("rpc_gateway.response",
+          "chain_id" => chain_id,
+          "method" => method,
+          "success" => success,
+          "source" => source,
+        )
+        .increment(1);
+
+        let response_result = chain_handler_response.response_result.clone();
+
+        RpcResponse::new(id, response_result)
     }
 
     async fn try_canned_response(&self, req: &EthRequest) -> Option<ResponseResult> {

@@ -43,6 +43,9 @@ tracing-subscriber.workspace = true
 url.workspace = true
 clap.workspace = true
 dashmap = "6.1.0"
+metrics = "0.24.1"
+metrics-exporter-prometheus = "0.16.2"
+quanta = "0.12.5"
 
 [[bin]]
 name = "rpc-gateway"
