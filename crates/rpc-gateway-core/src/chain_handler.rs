@@ -15,7 +15,7 @@ use std::future::Future;
 use std::hash::{DefaultHasher, Hash, Hasher};
 use std::pin::Pin;
 use std::sync::Arc;
-use tracing::{debug, error, instrument, trace, warn};
+use tracing::{debug, error, info, instrument, trace, warn};
 
 use crate::cache::{LocalCache, RedisCache, RpcCache};
 use crate::request_pool::{ChainRequestPool, RequestPoolError};
@@ -178,9 +178,13 @@ impl ChainHandler {
         };
 
         let chain_handler_response = self.on_request(&req, raw_call).await;
+
         debug!(
-            response = ?chain_handler_response,
-            "RPC response ready"
+          chain_id = ?self.chain_config.chain.id(),
+          method = ?method,
+          success = ?chain_handler_response.response_result,
+          source = ?chain_handler_response.response_source,
+          "RPC response ready",
         );
 
         let chain_id = self.chain_config.chain.id().to_string();
