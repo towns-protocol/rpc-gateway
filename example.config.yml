@@ -9,7 +9,7 @@ load_balancing:
   strategy: "primary_only"
 
 request_coalescing:
-  enabled: true
+  enabled: false
   # timeout: "block_time"
   # ttl: "block_time"
 

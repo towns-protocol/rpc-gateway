@@ -8,7 +8,7 @@ use redis::{AsyncCommands, FromRedisValue, RedisWrite, ToRedisArgs};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::{
-    hash::{DefaultHasher, Hash, Hasher},
+    // hash::{DefaultHasher, Hash, Hasher},
     sync::Arc,
     time::{Duration, Instant},
 };
@@ -362,9 +362,7 @@ impl RpcCache for LocalCache {
     }
 
     async fn insert(&self, req: &EthRequest, response: &Value, ttl: Duration) {
-        let mut hasher = DefaultHasher::new();
-        req.hash(&mut hasher);
-        let key = hasher.finish().to_string();
+        let key = self.get_key(req);
         let reqres = ReqRes {
             req: req.clone(),
             res: response.clone(),

@@ -48,3 +48,4 @@
 [ ] TODO: add default project, and make a decision on whether it should require key or not.
 [ ] TODO: add request header forwarding.
 [ ] TODO: put the project_name in the metrics as a tag.
+[ ] TODO: default k8s config should make sure the old deployment is not terminated before the new one is started.

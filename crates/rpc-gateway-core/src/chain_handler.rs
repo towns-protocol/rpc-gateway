@@ -253,6 +253,7 @@ impl ChainHandler {
                     (e.get().clone(), true)
                 }
                 dashmap::Entry::Vacant(e) => {
+                    // TODO: consider reusing the cache key here.
                     let inner_fut = cache_then_upstream(req.clone(), request_pool, cache, raw_call)
                         .boxed()
                         .shared();
@@ -281,10 +282,6 @@ impl ChainHandler {
         }
 
         // TODO: Why do new requests appear under coalesced even though they should be cached?
-
-        if matches!(result.response_source, ChainHandlerResponseSource::Upstream) {
-            try_cache_write(&self.cache, &req, &result.response_result).await;
-        }
 
         // Clean up
         self.in_flight_requests.remove(&coalescing_key);
@@ -388,7 +385,7 @@ async fn cache_then_upstream(
         };
     }
 
-    match request_pool.forward_request(&raw_call).await {
+    let response = match request_pool.forward_request(&raw_call).await {
         Ok(response) => ChainHandlerResponse {
             response_source: ChainHandlerResponseSource::Upstream,
             response_result: response.result,
@@ -406,5 +403,14 @@ async fn cache_then_upstream(
                 RpcError::internal_error_with(format!("{:?}", err)),
             ),
         },
+    };
+
+    if matches!(
+        response.response_source,
+        ChainHandlerResponseSource::Upstream
+    ) {
+        try_cache_write(&cache, &req, &response.response_result).await;
     }
+
+    response
 }
