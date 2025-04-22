@@ -5634,6 +5634,7 @@ dependencies = [
  "serde_yaml",
  "thiserror 2.0.12",
  "tokio",
+ "tokio-util",
  "tracing",
  "tracing-actix-web",
  "tracing-appender",
@@ -6892,6 +6893,8 @@ dependencies = [
  "bytes",
  "futures-core",
  "futures-sink",
+ "futures-util",
+ "hashbrown 0.14.5",
  "pin-project-lite",
  "tokio",
 ]

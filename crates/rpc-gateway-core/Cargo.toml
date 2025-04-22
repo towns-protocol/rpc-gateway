@@ -46,6 +46,7 @@ dashmap = "6.1.0"
 metrics = "0.24.1"
 metrics-exporter-prometheus = "0.16.2"
 quanta = "0.12.5"
+tokio-util = { version = "0.7.14", features = ["rt"] }
 
 [[bin]]
 name = "rpc-gateway"

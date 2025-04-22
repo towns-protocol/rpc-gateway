@@ -27,6 +27,8 @@ pub struct Config {
     #[serde(default)]
     pub request_coalescing: RequestCoalescingConfig,
     #[serde(default)]
+    pub metrics: MetricsConfig,
+    #[serde(default)]
     #[serde(with = "chain_map_serde")]
     pub chains: HashMap<u64, ChainConfig>,
 }
@@ -310,7 +312,7 @@ fn default_console_enabled() -> bool {
 fn default_rust_log() -> String {
     if cfg!(debug_assertions) {
         // Development environment - more verbose logging
-        "error,rpc_gateway_core=info".to_string()
+        "warn,rpc_gateway_core=debug".to_string()
     } else {
         // Production environment - more conservative logging
         "warn,rpc_gateway_core=info".to_string()
@@ -473,6 +475,7 @@ impl Default for Config {
             cache: CacheConfig::Disabled,
             canned_responses: CannedResponseConfig::default(),
             request_coalescing: RequestCoalescingConfig::default(),
+            metrics: MetricsConfig::default(),
             chains,
         }
     }
@@ -715,6 +718,53 @@ impl Default for RequestCoalescingConfig {
             enabled: default_request_coalescing_enabled(),
         }
     }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MetricsConfig {
+    #[serde(default = "default_metrics_enabled")]
+    pub enabled: bool,
+    #[serde(default = "default_metrics_port")]
+    pub port: u16,
+    #[serde(default = "default_metrics_host")]
+    pub host: String,
+}
+
+impl MetricsConfig {
+    pub fn host_bytes(&self) -> Result<[u8; 4], String> {
+        let parts: Result<Vec<u8>, _> = self
+            .host
+            .split('.')
+            .map(|part| part.parse::<u8>())
+            .collect();
+
+        match parts {
+            Ok(parts) if parts.len() == 4 => Ok([parts[0], parts[1], parts[2], parts[3]]),
+            _ => Err(format!("Invalid IPv4 address format: {}", self.host)),
+        }
+    }
+}
+
+impl Default for MetricsConfig {
+    fn default() -> Self {
+        Self {
+            enabled: default_metrics_enabled(),
+            port: default_metrics_port(),
+            host: default_metrics_host(),
+        }
+    }
+}
+
+fn default_metrics_enabled() -> bool {
+    true
+}
+
+fn default_metrics_port() -> u16 {
+    8082
+}
+
+fn default_metrics_host() -> String {
+    "127.0.0.1".to_string()
 }
 
 #[cfg(test)]
@@ -1649,6 +1699,187 @@ chains:
         assert!(result.is_err());
         let err = result.unwrap_err();
         assert!(err.to_string().contains("invalid type"));
+    }
+
+    #[test]
+    fn test_metrics_config_default() {
+        let config = Config::default();
+        assert!(config.metrics.enabled, "enabled should be true by default");
+        assert_eq!(config.metrics.port, 8082, "port should be 8082 by default");
+        assert_eq!(
+            config.metrics.host,
+            "127.0.0.1".to_string(),
+            "host should be localhost by default"
+        );
+        assert_eq!(
+            config.metrics.host_bytes(),
+            Ok([127, 0, 0, 1]),
+            "host_bytes should be localhost by default"
+        );
+    }
+
+    #[test]
+    fn test_metrics_config_from_yaml() {
+        let config_str = r#"
+metrics:
+  enabled: true
+  port: 9091
+  host: "0.0.0.0"
+
+chains:
+  1:
+    upstreams:
+      - url: "http://example.com"
+"#;
+
+        let config = Config::from_yaml_str(config_str).unwrap();
+        assert!(config.metrics.enabled);
+        assert_eq!(config.metrics.port, 9091);
+        assert_eq!(config.metrics.host, "0.0.0.0");
+        assert_eq!(config.metrics.host_bytes(), Ok([0, 0, 0, 0]));
+    }
+
+    #[test]
+    fn test_metrics_config_disabled() {
+        let config_str = r#"
+metrics:
+  enabled: false
+  port: 9091
+  host: "0.0.0.0"
+
+chains:
+  1:
+    upstreams:
+      - url: "http://example.com"
+"#;
+
+        let config = Config::from_yaml_str(config_str).unwrap();
+        assert!(!config.metrics.enabled);
+        assert_eq!(config.metrics.port, 9091);
+        assert_eq!(config.metrics.host, "0.0.0.0");
+        assert_eq!(config.metrics.host_bytes(), Ok([0, 0, 0, 0]));
+    }
+
+    #[test]
+    fn test_metrics_config_omitted() {
+        let config_str = r#"
+chains:
+  1:
+    upstreams:
+      - url: "http://example.com"
+"#;
+
+        let config = Config::from_yaml_str(config_str).unwrap();
+        assert!(config.metrics.enabled, "enabled should default to true");
+        assert_eq!(config.metrics.port, 8082, "port should default to 8082");
+        assert_eq!(
+            config.metrics.host,
+            "127.0.0.1".to_string(),
+            "host should default to localhost"
+        );
+        assert_eq!(
+            config.metrics.host_bytes(),
+            Ok([127, 0, 0, 1]),
+            "host_bytes should default to localhost"
+        );
+    }
+
+    #[test]
+    fn test_metrics_config_invalid_port() {
+        let config_str = r#"
+metrics:
+  enabled: true
+  port: 70000
+  host: "127.0.0.1"
+
+chains:
+  1:
+    upstreams:
+      - url: "http://example.com"
+"#;
+
+        let result = Config::from_yaml_str(config_str);
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(
+            err.to_string()
+                .contains("invalid value: integer `70000`, expected u16")
+        );
+    }
+
+    #[test]
+    fn test_metrics_config_invalid_host() {
+        let config_str = r#"
+metrics:
+  enabled: true
+  port: 8082
+  host: "127.0.0"  # Invalid host format
+
+chains:
+  1:
+    upstreams:
+      - url: "http://example.com"
+"#;
+
+        let config = Config::from_yaml_str(config_str).unwrap();
+        let result = std::panic::catch_unwind(|| {
+            config.metrics.host_bytes().unwrap();
+        });
+        assert!(result.is_err(), "Should panic on invalid host format");
+    }
+
+    #[test]
+    fn test_metrics_config_partial() {
+        let config_str = r#"
+metrics:
+  port: 9091
+
+chains:
+  1:
+    upstreams:
+      - url: "http://example.com"
+"#;
+
+        let config = Config::from_yaml_str(config_str).unwrap();
+        assert!(config.metrics.enabled, "enabled should default to true");
+        assert_eq!(config.metrics.port, 9091);
+        assert_eq!(
+            config.metrics.host,
+            "127.0.0.1".to_string(),
+            "host should default to localhost"
+        );
+        assert_eq!(
+            config.metrics.host_bytes(),
+            Ok([127, 0, 0, 1]),
+            "host_bytes should default to localhost"
+        );
+    }
+
+    #[test]
+    fn test_metrics_config_host_bytes() {
+        let config = MetricsConfig {
+            enabled: true,
+            port: 8082,
+            host: "192.168.1.1".to_string(),
+        };
+        assert_eq!(config.host_bytes(), Ok([192, 168, 1, 1]));
+
+        let config = MetricsConfig {
+            enabled: true,
+            port: 8082,
+            host: "0.0.0.0".to_string(),
+        };
+        assert_eq!(config.host_bytes(), Ok([0, 0, 0, 0]));
+
+        let config = MetricsConfig {
+            enabled: true,
+            port: 8082,
+            host: "invalid".to_string(),
+        };
+        assert_eq!(
+            config.host_bytes(),
+            Err("Invalid IPv4 address format: invalid".to_string())
+        );
     }
 }
 

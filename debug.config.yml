@@ -1,13 +1,11 @@
 server:
-  host: "127.0.0.1"
   port: 8080
+
+metrics:
+  port: 8082
 
 load_balancing:
   strategy: "primary_only"
-
-upstream_health_checks:
-  enabled: true
-  interval: "1m" # More frequent health checks for debugging
 
 error_handling:
   type: "retry"
@@ -18,7 +16,10 @@ error_handling:
 cache:
   type: "redis"
   url: "redis://localhost:6379"
-  key_prefix: "eth_request"
+
+upstream_health_checks:
+  enabled: true
+  interval: "1m" # More frequent health checks for debugging
 
 logging:
   console:

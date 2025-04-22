@@ -73,8 +73,8 @@ docker-up: ## Start all Docker services.
 
 .PHONY: docker-up-no-gateway
 docker-up-no-gateway: ## Start all Docker services except the gateway.
-	@echo "Starting supporting services (Redis and blockchain nodes)..."
-	docker-compose up -d redis redis-commander mainnet polygon arbitrum
+	@echo "Starting supporting services..."
+	docker-compose up -d mainnet polygon arbitrum prometheus redis redis-commander 
 	@echo "Waiting for services to be ready..."
 
 .PHONY: docker-down
@@ -143,7 +143,7 @@ minikube-test: ## Test the Minikube gateway by sending an eth_getBlock request.
 ##@ development
 
 .PHONY: dev
-dev: ## Start development server with file watching.
+dev: ## Start development server with file watching. Usage: make dev CONFIG=path/to/config.yml
 	@echo "Starting development server with file watching..."
 	@echo "Press Ctrl+C to stop"
 	@echo "----------------------------------------"
@@ -153,7 +153,7 @@ dev: ## Start development server with file watching.
 	@echo "----------------------------------------"
 	@echo "Starting server..."
 	@mkdir -p logs
-	watchexec -e rs -r cargo run -- -c $(PWD)/example.config.yml
+	watchexec -e rs -r cargo run -- -c $(if $(CONFIG),$(CONFIG),$(PWD)/example.config.yml)
 
 load-test:
 	for i in {1..1000}; do curl -X POST -H "Content-Type: application/json" --data '{"jsonrpc":"2.0","method":"eth_blockNumber","params":[],"id":1}' http://localhost:8080/1 > /dev/null 2>&1 & done

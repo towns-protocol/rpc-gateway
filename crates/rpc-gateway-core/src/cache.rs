@@ -165,7 +165,7 @@ pub trait RpcCache: Send + Sync + std::fmt::Debug {
         match req {
             // EthRequest::Web3ClientVersion(_) => todo!(), TODO: self-implement
             // EthRequest::Web3Sha3(bytes) => todo!(), TODO: self-implement
-            // EthRequest::EthNetworkId(_) => todo!(), TODO: self-implement
+            EthRequest::EthNetworkId(_) => Some(ONE_YEAR),
             // EthRequest::NetListening(_) => todo!(),
             EthRequest::EthGasPrice(_) => Some(block_time.clone()), // TODO: make this configurable
             EthRequest::EthMaxPriorityFeePerGas(_) => Some(block_time.clone()), // TODO: make this configurable

@@ -33,6 +33,7 @@ impl Gateway {
         Self { handlers, config }
     }
 
+    // TODO: this should be called by the task manager. it should be async.
     pub fn start_upstream_health_check_loops(&self) {
         if !self.config.upstream_health_checks.enabled {
             warn!("Upstream health checks are disabled. Not starting health check loops.");
