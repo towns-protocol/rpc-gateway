@@ -95,20 +95,16 @@ pub async fn run(gateway: Arc<Gateway>, config: Arc<Config>) -> std::io::Result<
         let cors_config = &config.cors;
         let mut cors = Cors::default();
 
+        // TODO: make these configurable.
         if cors_config.allow_any_origin {
             cors = cors.allow_any_origin();
-        } else if !cors_config.allowed_origins.is_empty() {
-            for origin in &cors_config.allowed_origins {
-                cors = cors.allowed_origin(origin);
-            }
+            cors = cors
+                .max_age(cors_config.max_age as usize)
+                .allow_any_origin()
+                .allow_any_header()
+                .allow_any_method()
+                .expose_any_header()
         }
-
-        // TODO: make these configurable.
-        cors = cors
-            .max_age(cors_config.max_age as usize)
-            .allowed_methods(vec!["GET", "POST", "OPTIONS"])
-            .allowed_headers(vec!["*"])
-            .expose_headers(vec!["*"]);
 
         App::new()
             .wrap(TracingLogger::default())
