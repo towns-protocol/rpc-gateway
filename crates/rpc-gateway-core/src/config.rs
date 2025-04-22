@@ -34,6 +34,8 @@ pub struct Config {
     #[serde(default)]
     #[serde(with = "projects_serde")]
     pub projects: HashMap<String, ProjectConfig>,
+    #[serde(default = "default_cors")]
+    pub cors: CorsConfig,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -48,6 +50,20 @@ pub struct ServerConfig {
     pub host: String,
     #[serde(default = "default_port")]
     pub port: u16,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CorsConfig {
+    #[serde(default = "default_allow_any_origin")]
+    pub allow_any_origin: bool,
+    #[serde(default = "default_allowed_origins")]
+    pub allowed_origins: Vec<String>,
+    #[serde(default = "default_allowed_methods")]
+    pub allowed_methods: Vec<String>,
+    #[serde(default = "default_allowed_headers")]
+    pub allowed_headers: Vec<String>,
+    #[serde(default = "default_max_age")]
+    pub max_age: u32,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -502,6 +518,7 @@ impl Default for Config {
             metrics: MetricsConfig::default(),
             projects: HashMap::new(),
             chains,
+            cors: default_cors(),
         }
     }
 }
@@ -1916,6 +1933,36 @@ chains:
 
 fn default_redis_url() -> String {
     "redis://localhost:6379".to_string()
+}
+
+fn default_cors() -> CorsConfig {
+    CorsConfig {
+        allow_any_origin: default_allow_any_origin(),
+        allowed_origins: default_allowed_origins(),
+        allowed_methods: default_allowed_methods(),
+        allowed_headers: default_allowed_headers(),
+        max_age: default_max_age(),
+    }
+}
+
+fn default_allow_any_origin() -> bool {
+    false
+}
+
+fn default_allowed_origins() -> Vec<String> {
+    vec![]
+}
+
+fn default_allowed_methods() -> Vec<String> {
+    vec!["GET".to_string(), "POST".to_string(), "OPTIONS".to_string()]
+}
+
+fn default_allowed_headers() -> Vec<String> {
+    vec!["Content-Type".to_string(), "Authorization".to_string()]
+}
+
+fn default_max_age() -> u32 {
+    3600
 }
 
 mod projects_serde {

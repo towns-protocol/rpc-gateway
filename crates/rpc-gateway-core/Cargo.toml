@@ -15,6 +15,7 @@ workspace = true
 
 [dependencies]
 actix-web.workspace = true
+actix-cors = "0.7.0"
 alloy-chains.workspace = true
 alloy-primitives.workspace = true
 alloy-eips.workspace = true

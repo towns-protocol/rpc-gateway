@@ -3,6 +3,7 @@ use std::sync::Arc;
 
 use crate::config::Config;
 use crate::gateway::Gateway;
+use actix_cors::Cors;
 use actix_web::{App, HttpResponse, HttpServer, Result, web};
 use anvil_rpc::{self, error::RpcError, request::Request, response::Response};
 use tracing::{debug, info};
@@ -88,8 +89,24 @@ pub async fn run(gateway: Arc<Gateway>, config: Arc<Config>) -> std::io::Result<
         "Starting server"
     );
 
+    let host = config.server.host.clone();
+    let port = config.server.port;
     HttpServer::new(move || {
+        let cors_config = &config.cors;
+        let mut cors = Cors::default();
+
+        if cors_config.allow_any_origin {
+            cors = cors.allow_any_origin();
+        } else if !cors_config.allowed_origins.is_empty() {
+            for origin in &cors_config.allowed_origins {
+                cors = cors.allowed_origin(origin);
+            }
+        }
+
+        cors = cors.max_age(cors_config.max_age as usize);
+
         App::new()
+            .wrap(cors)
             .wrap(TracingLogger::default())
             .app_data(web::Data::new(gateway.clone()))
             .route("/health", web::get().to(liveness_probe))
@@ -107,7 +124,7 @@ pub async fn run(gateway: Arc<Gateway>, config: Arc<Config>) -> std::io::Result<
                 web::route().to(|| async { HttpResponse::NotFound().body("404 Not Found") }),
             )
     })
-    .bind((config.server.host.as_str(), config.server.port))?
+    .bind((host, port))?
     .run()
     .await
 }

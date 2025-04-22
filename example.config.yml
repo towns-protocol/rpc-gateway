@@ -2,6 +2,9 @@ server:
   host: "127.0.0.1"
   port: 8080
 
+cors:
+  allow_any_origin: true
+
 load_balancing:
   strategy: "primary_only"
 
