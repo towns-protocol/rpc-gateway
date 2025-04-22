@@ -103,10 +103,14 @@ pub async fn run(gateway: Arc<Gateway>, config: Arc<Config>) -> std::io::Result<
             }
         }
 
-        cors = cors.max_age(cors_config.max_age as usize);
+        // TODO: make these configurable.
+        cors = cors
+            .max_age(cors_config.max_age as usize)
+            .allowed_methods(vec!["GET", "POST", "OPTIONS"])
+            .allowed_headers(vec!["*"])
+            .expose_headers(vec!["*"]);
 
         App::new()
-            .wrap(cors)
             .wrap(TracingLogger::default())
             .app_data(web::Data::new(gateway.clone()))
             .route("/health", web::get().to(liveness_probe))
@@ -123,6 +127,7 @@ pub async fn run(gateway: Arc<Gateway>, config: Arc<Config>) -> std::io::Result<
             .default_service(
                 web::route().to(|| async { HttpResponse::NotFound().body("404 Not Found") }),
             )
+            .wrap(cors)
     })
     .bind((host, port))?
     .run()
