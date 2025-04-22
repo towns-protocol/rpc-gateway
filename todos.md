@@ -45,3 +45,5 @@
 [ ] Consider racing multiple upstreams for latency optimizations.
 [ ] CRITICAL: ADD OPTIONAL MULTICALL SUPPORT (for select contracts and methods)
 [ ] eth_getStorageAt can also be batched into a single multi-call. (This only works for ExtAsLoad implementors). Combining this with "the Shuhui" method, we can execute eth_getStorageAt for multiple external contracts in a single request. Alchemy and Infura allow you to do state overrides - which means you don't need direct EVM access to execute this hack.
+[ ] TODO: add default project, and make a decision on whether it should require key or not.
+[ ] TODO: add request header forwarding.
