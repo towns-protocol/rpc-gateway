@@ -349,9 +349,11 @@ impl RpcCache for LocalCache {
     }
 
     fn get_key(&self, req: &EthRequest) -> String {
-        let mut hasher = DefaultHasher::new();
-        req.hash(&mut hasher);
-        hasher.finish().to_string()
+        // let mut hasher = DefaultHasher::new();
+        // req.hash(&mut hasher);
+        // hasher.finish().to_string()
+        serde_json::to_string(&req).unwrap() // TODO: is this the right way to do this?
+        // TODO: may avoid saving the entire request as the key.
     }
 
     async fn get(&self, req: &EthRequest) -> Option<ReqRes> {
@@ -402,15 +404,16 @@ impl RedisCache {
 #[async_trait::async_trait]
 impl RpcCache for RedisCache {
     fn get_key(&self, req: &EthRequest) -> String {
-        let mut hasher = DefaultHasher::new();
-        self.chain_id.hash(&mut hasher);
-        req.hash(&mut hasher);
-        let key = hasher.finish().to_string();
-        if let Some(prefix) = &self.key_prefix {
-            format!("{}:{}", prefix, key)
-        } else {
-            key
-        }
+        // let mut hasher = DefaultHasher::new();
+        // self.chain_id.hash(&mut hasher);
+        // req.hash(&mut hasher);
+        // let key = hasher.finish().to_string();
+        // if let Some(prefix) = &self.key_prefix {
+        //     format!("{}:{}", prefix, key)
+        // } else {
+        //     key
+        // }
+        format!("{}:{}", self.chain_id, serde_json::to_string(&req).unwrap()) // TODO: is this the right way to do this?
     }
 
     async fn get(&self, req: &EthRequest) -> Option<ReqRes> {

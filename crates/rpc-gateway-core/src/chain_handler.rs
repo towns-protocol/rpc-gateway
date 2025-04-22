@@ -236,25 +236,27 @@ impl ChainHandler {
         req: &EthRequest,
         raw_call: Value,
     ) -> ChainHandlerResponse {
-        let mut hasher = DefaultHasher::new();
-        req.hash(&mut hasher);
-        let cache_key = hasher.finish().to_string();
+        // let mut hasher = DefaultHasher::new();
+        // req.hash(&mut hasher);
+        // let coalescing_key = hasher.finish().to_string();
+
+        let coalescing_key = serde_json::to_string(&req).unwrap(); // TODO: is this the right way to do this?
 
         let (outer_fut, coalesced) = {
             let request_pool = self.request_pool.clone();
             let raw_call = raw_call.clone();
             let cache = self.cache.clone();
 
-            match self.in_flight_requests.entry(cache_key.clone()) {
+            match self.in_flight_requests.entry(coalescing_key.clone()) {
                 dashmap::Entry::Occupied(e) => {
-                    debug!("returning existing future");
+                    debug!(?coalescing_key, "returning existing future");
                     (e.get().clone(), true)
                 }
                 dashmap::Entry::Vacant(e) => {
                     let inner_fut = cache_then_upstream(req.clone(), request_pool, cache, raw_call)
                         .boxed()
                         .shared();
-                    debug!("storing new future");
+                    debug!(?coalescing_key, "storing new future");
                     e.insert(inner_fut.clone());
                     (inner_fut, false)
                 }
@@ -265,6 +267,7 @@ impl ChainHandler {
         let result = outer_fut.await;
 
         if coalesced {
+            debug!(?coalescing_key, "coalescing complete");
             // TODO: make sure you cover all edge cases
             let final_response_source = match result.response_source {
                 ChainHandlerResponseSource::Cached => ChainHandlerResponseSource::Cached,
@@ -284,7 +287,7 @@ impl ChainHandler {
         }
 
         // Clean up
-        self.in_flight_requests.remove(&cache_key);
+        self.in_flight_requests.remove(&coalescing_key);
 
         result
     }

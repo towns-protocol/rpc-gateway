@@ -113,7 +113,7 @@ pub async fn run(gateway: Arc<Gateway>, config: Arc<Config>) -> std::io::Result<
             .route("/health/liveness", web::get().to(liveness_probe))
             .route("/health/readiness", web::get().to(readiness_probe))
             .route(
-                "/{chain_id}/{project_name}",
+                "/{project_name}/{chain_id}",
                 web::post().to(handle_rpc_request_with_project),
             )
             .route(
