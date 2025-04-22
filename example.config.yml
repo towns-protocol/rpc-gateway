@@ -52,6 +52,12 @@ logging:
   #   include_file: true
   #   include_line_number: true
 
+projects:
+  - name: "nodes"
+
+  - name: "web-app"
+    key: "$WEB_APP_KEY"
+
 chains:
   1:
     upstreams:

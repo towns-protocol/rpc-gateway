@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use crate::config::Config;
@@ -10,10 +11,47 @@ use tracing_actix_web::TracingLogger;
 // TODO: add better error handling.
 // TODO: this should instrument with debug level, not info.
 #[tracing::instrument(skip(path, gateway))]
-async fn handle_rpc_request(
+async fn handle_rpc_request_with_project(
+    path: web::Path<(String, u64)>,
+    body: String,
+    gateway: web::Data<Arc<Gateway>>,
+    query: web::Query<HashMap<String, String>>,
+) -> Result<String> {
+    let (project_name, chain_id) = path.into_inner();
+    let project_key = query.get("key").cloned();
+
+    let request: Request = serde_json::from_str(&body).map_err(|e| {
+        debug!(error = %e, "Failed to parse request body");
+        actix_web::error::ErrorBadRequest("Invalid JSON-RPC request")
+    })?;
+
+    let project_config = gateway.config.projects.get(&project_name);
+
+    if project_config.is_none() {
+        return Ok(serde_json::to_string(&Response::error(
+            RpcError::internal_error_with("Project not found"),
+        ))?);
+    }
+
+    let response = gateway
+        .handle_request(Some(project_name), project_key, chain_id, request)
+        .await;
+
+    let response = response.unwrap_or(Response::error(RpcError::internal_error_with(
+        "Internal server error",
+    )));
+
+    let response_string = serde_json::to_string(&response)?;
+
+    Ok(response_string)
+}
+
+#[tracing::instrument(skip(path, gateway))]
+async fn handle_rpc_request_without_project(
     path: web::Path<u64>,
     body: String,
     gateway: web::Data<Arc<Gateway>>,
+    query: web::Query<HashMap<String, String>>,
 ) -> Result<String> {
     let chain_id = path.into_inner();
 
@@ -22,7 +60,7 @@ async fn handle_rpc_request(
         actix_web::error::ErrorBadRequest("Invalid JSON-RPC request")
     })?;
 
-    let response = gateway.handle_request(chain_id, request).await;
+    let response = gateway.handle_request(None, None, chain_id, request).await;
 
     let response = response.unwrap_or(Response::error(RpcError::internal_error_with(
         "Internal server error",
@@ -57,7 +95,14 @@ pub async fn run(gateway: Arc<Gateway>, config: Arc<Config>) -> std::io::Result<
             .route("/health", web::get().to(liveness_probe))
             .route("/health/liveness", web::get().to(liveness_probe))
             .route("/health/readiness", web::get().to(readiness_probe))
-            .route("/{chain_id}", web::post().to(handle_rpc_request))
+            .route(
+                "/{chain_id}/{project_name}",
+                web::post().to(handle_rpc_request_with_project),
+            )
+            .route(
+                "/{chain_id}",
+                web::post().to(handle_rpc_request_without_project),
+            )
             .default_service(
                 web::route().to(|| async { HttpResponse::NotFound().body("404 Not Found") }),
             )

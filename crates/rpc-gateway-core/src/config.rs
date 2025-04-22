@@ -31,6 +31,15 @@ pub struct Config {
     #[serde(default)]
     #[serde(with = "chain_map_serde")]
     pub chains: HashMap<u64, ChainConfig>,
+    #[serde(default)]
+    #[serde(with = "projects_serde")]
+    pub projects: HashMap<String, ProjectConfig>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProjectConfig {
+    pub name: String,
+    pub key: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -446,6 +455,7 @@ impl Config {
     }
 
     fn process_urls(&mut self) -> Result<(), Box<dyn std::error::Error>> {
+        // Process upstream URLs
         for (_, chain_config) in &mut self.chains {
             for upstream in chain_config.upstreams.iter_mut() {
                 if upstream.url.as_str().starts_with('$') {
@@ -457,6 +467,20 @@ impl Config {
                 }
             }
         }
+
+        // Process project keys
+        for (_, project_config) in &mut self.projects {
+            if let Some(key) = &project_config.key {
+                if key.starts_with('$') {
+                    let env_var = key.trim_start_matches('$');
+                    let env_value = std::env::var(env_var).map_err(|e| {
+                        format!("Environment variable '{}' not found: {}", env_var, e)
+                    })?;
+                    project_config.key = Some(env_value);
+                }
+            }
+        }
+
         Ok(())
     }
 }
@@ -476,6 +500,7 @@ impl Default for Config {
             canned_responses: CannedResponseConfig::default(),
             request_coalescing: RequestCoalescingConfig::default(),
             metrics: MetricsConfig::default(),
+            projects: HashMap::new(),
             chains,
         }
     }
@@ -1881,8 +1906,48 @@ chains:
             Err("Invalid IPv4 address format: invalid".to_string())
         );
     }
+
+    #[test]
+    fn test_projects_config_default() {
+        let config = Config::default();
+        assert!(config.projects.is_empty());
+    }
 }
 
 fn default_redis_url() -> String {
     "redis://localhost:6379".to_string()
+}
+
+mod projects_serde {
+    use super::*;
+    use serde::{Deserializer, Serializer};
+    use std::collections::HashMap;
+
+    pub fn deserialize<'de, D>(deserializer: D) -> Result<HashMap<String, ProjectConfig>, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        // First try to deserialize as a list
+        let list: Vec<ProjectConfig> = Vec::deserialize(deserializer)?;
+
+        // Convert list to HashMap using name as key
+        let mut map = HashMap::new();
+        for project in list {
+            map.insert(project.name.clone(), project);
+        }
+
+        Ok(map)
+    }
+
+    pub fn serialize<S>(
+        map: &HashMap<String, ProjectConfig>,
+        serializer: S,
+    ) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        // Convert HashMap to Vec for serialization
+        let list: Vec<&ProjectConfig> = map.values().collect();
+        list.serialize(serializer)
+    }
 }

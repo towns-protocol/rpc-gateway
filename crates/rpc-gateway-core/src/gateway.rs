@@ -16,7 +16,7 @@ use crate::chain_handler::ChainHandler;
 #[derive(Debug)]
 pub struct Gateway {
     handlers: HashMap<u64, ChainHandler>,
-    config: Config,
+    pub config: Config, // TODO: make this private
 }
 
 impl Gateway {
@@ -72,7 +72,23 @@ impl Gateway {
         join_all(futures).await;
     }
 
-    pub async fn handle_request(&self, chain_id: u64, req: Request) -> Option<Response> {
+    pub async fn handle_request(
+        &self,
+        project_name: Option<String>,
+        key: Option<String>,
+        chain_id: u64,
+        req: Request,
+    ) -> Option<Response> {
+        let project_config = match project_name {
+            Some(project_name) => self.config.projects.get(&project_name),
+            None => None,
+        };
+
+        let is_authorized = match project_config {
+            Some(project_config) => project_config.key == key,
+            None => true,
+        };
+
         let chain_handler = match self.handlers.get(&chain_id) {
             Some(chain_handler) => chain_handler,
             None => {
@@ -81,9 +97,11 @@ impl Gateway {
             }
         };
 
-        match req {
-            Request::Single(call) => chain_handler.handle_call(call).await.map(Response::Single),
-            Request::Batch(calls) => {
+        match (req, is_authorized) {
+            (Request::Single(call), true) => {
+                chain_handler.handle_call(call).await.map(Response::Single)
+            }
+            (Request::Batch(calls), true) => {
                 future::join_all(
                     calls
                         .into_iter()
@@ -91,6 +109,11 @@ impl Gateway {
                 )
                 .map(responses_as_batch)
                 .await
+            }
+            (_, false) => {
+                warn!("Unauthorized request");
+                let error = Response::error(RpcError::internal_error_with("Unauthorized"));
+                return Some(error);
             }
         }
     }
