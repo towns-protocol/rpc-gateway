@@ -3,12 +3,12 @@ entries:
   rpc-gateway:
   - apiVersion: v2
     appVersion: 1.0.0
-    created: "2025-04-22T14:24:49.228216-04:00"
+    created: "2025-04-22T15:13:00.377312-04:00"
     description: A Helm chart for RPC Gateway
-    digest: 85c6d6b6ef0b147c484609e2f75ad13194932bdb80def21724eccb22c4fcd8c6
+    digest: 122522b0c2b89326c4d100b95a335f947512c3a1a35a1fd467e0c2cb6b1e9d9c
     name: rpc-gateway
     type: application
     urls:
     - https://whats-good.github.io/rpc-gateway/helm/rpc-gateway-0.1.0.tgz
     version: 0.1.0
-generated: "2025-04-22T14:24:49.227561-04:00"
+generated: "2025-04-22T15:13:00.376465-04:00"
