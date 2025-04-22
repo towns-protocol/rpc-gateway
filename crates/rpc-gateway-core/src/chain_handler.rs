@@ -191,7 +191,7 @@ impl ChainHandler {
         };
 
         // TODO: how can i use the x.y namespacing here? they get overwritten to x_y_z
-        counter!("rpc_gateway.response",
+        counter!("rpc_gateway_response",
           "chain_id" => chain_id,
           "method" => method,
           "success" => success,
