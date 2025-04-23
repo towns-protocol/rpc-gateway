@@ -1,6 +1,8 @@
+use crate::cache::{LocalCache, RedisCache, RpcCache};
 use crate::config::{
     CacheConfig, CannedResponseConfig, ChainConfig, Config, ProjectConfig, RequestCoalescingConfig,
 };
+use crate::request_pool::{ChainRequestPool, RequestPoolError};
 use anvil_core::eth::EthRequest;
 use anvil_rpc::error::RpcError;
 use anvil_rpc::request::{RpcCall, RpcMethodCall};
@@ -13,13 +15,10 @@ use metrics::histogram;
 use serde_json::Value;
 use std::borrow::Cow;
 use std::future::Future;
-use std::hash::{DefaultHasher, Hash, Hasher};
 use std::pin::Pin;
 use std::sync::Arc;
+use std::time::Duration;
 use tracing::{debug, error, info, instrument, trace, warn};
-
-use crate::cache::{LocalCache, RedisCache, RpcCache};
-use crate::request_pool::{ChainRequestPool, RequestPoolError};
 
 #[derive(Debug, Clone)]
 enum ChainHandlerResponseSource {
@@ -58,7 +57,7 @@ pub struct ChainHandler {
     pub canned_responses_config: CannedResponseConfig,
     pub request_pool: Arc<ChainRequestPool>,
     pub cache: Option<Arc<Box<dyn RpcCache>>>, // TODO: is this the right way to do this?
-    in_flight_requests: DashMap<String, SharedResponseFuture>, // TODO: is there a max size here? what's the limit?
+    in_flight_requests: Arc<DashMap<String, SharedResponseFuture>>, // TODO: is there a max size here? what's the limit?
 }
 use std::sync::LazyLock;
 
@@ -119,7 +118,7 @@ impl ChainHandler {
             cache: cache.map(Arc::new),
             request_coalescing_config: config.request_coalescing.clone(),
             canned_responses_config: config.canned_responses.clone(),
-            in_flight_requests: DashMap::new(),
+            in_flight_requests: Arc::new(DashMap::new()),
         }
     }
 
@@ -153,7 +152,6 @@ impl ChainHandler {
         project_config: &ProjectConfig,
     ) -> RpcResponse {
         let chain_id = self.chain_config.chain.id().to_string();
-        let gateway_project = project_config.name.clone();
         let RpcMethodCall { method, id, .. } = call;
 
         let start_time = std::time::Instant::now();
@@ -218,7 +216,7 @@ impl ChainHandler {
         let response_result = chain_handler_response.response_result.clone();
 
         // Record response time
-        let duration = start_time.elapsed();
+        let duration = start_time.elapsed(); // TODO: is this the best way to measure time?
         histogram!("rpc_response_time_seconds",
           "chain_id" => chain_id.clone(),
           "rpc_method" => method.clone(),
@@ -269,7 +267,7 @@ impl ChainHandler {
             let request_pool = self.request_pool.clone();
             let raw_call = raw_call.clone();
             let cache = self.cache.clone();
-
+            let in_flight_requests = self.in_flight_requests.clone();
             match self.in_flight_requests.entry(coalescing_key.clone()) {
                 dashmap::Entry::Occupied(e) => {
                     debug!(?coalescing_key, "returning existing future");
@@ -280,7 +278,30 @@ impl ChainHandler {
                     let inner_fut = cache_then_upstream(req.clone(), request_pool, cache, raw_call)
                         .boxed()
                         .shared();
-                    debug!(?coalescing_key, "storing new future");
+
+                    let timeout = Duration::from_millis(500); // TODO: make this configurable
+
+                    let inner_fut_for_removal = inner_fut.clone();
+                    let coalescing_key_for_removal = coalescing_key.clone();
+
+                    // TODO: consider capping the dashmap size
+
+                    tokio::spawn(async move {
+                        // TODO: can just use a tokio::time::timeout here
+                        let did_complete = tokio::select!(
+                            _ = inner_fut_for_removal => true,
+                            _ = tokio::time::sleep(timeout) => false
+                        );
+
+                        debug!(
+                            ?coalescing_key_for_removal,
+                            did_complete = ?did_complete,
+                            "removing coalesced request future"
+                        );
+                        in_flight_requests.remove(&coalescing_key_for_removal);
+                    });
+
+                    debug!(?coalescing_key, "storing coalesced request future");
                     e.insert(inner_fut.clone());
                     (inner_fut, false)
                 }
@@ -292,22 +313,12 @@ impl ChainHandler {
 
         if coalesced {
             debug!(?coalescing_key, "coalescing complete");
-            // TODO: make sure you cover all edge cases
-            let final_response_source = match result.response_source {
-                ChainHandlerResponseSource::Cached => ChainHandlerResponseSource::Cached,
-                _ => ChainHandlerResponseSource::Coalesced,
-            };
 
             return ChainHandlerResponse {
-                response_source: final_response_source,
+                response_source: ChainHandlerResponseSource::Coalesced,
                 response_result: result.response_result,
             };
         }
-
-        // TODO: Why do new requests appear under coalesced even though they should be cached?
-
-        // Clean up
-        self.in_flight_requests.remove(&coalescing_key);
 
         result
     }
@@ -315,16 +326,9 @@ impl ChainHandler {
     #[instrument(skip(self, req, raw_call))]
     async fn on_request(&self, req: &EthRequest, raw_call: Value) -> ChainHandlerResponse {
         if let Some(response_result) = self.try_canned_response(&req).await {
+            // TODO: may want to cache canned responses if they are expensive to generate
             return ChainHandlerResponse {
                 response_source: ChainHandlerResponseSource::Canned,
-                response_result,
-            };
-        }
-
-        // Try cache read
-        if let Some(response_result) = try_cache_read(&self.cache, &req).await {
-            return ChainHandlerResponse {
-                response_source: ChainHandlerResponseSource::Cached,
                 response_result,
             };
         }

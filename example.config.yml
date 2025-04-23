@@ -8,10 +8,10 @@ cors:
 load_balancing:
   strategy: "primary_only"
 
-request_coalescing:
-  enabled: false
-  # timeout: "block_time"
-  # ttl: "block_time"
+# request_coalescing:
+#   enabled: false
+#   # timeout: "block_time"
+#   # ttl: "block_time"
 
 upstream_health_checks:
   enabled: true

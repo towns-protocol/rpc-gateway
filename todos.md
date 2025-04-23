@@ -53,3 +53,5 @@
 [ ] use another tag for "source" since it may conflict with log source/metric source.
 [ ] How can i visualize the histogram metrics on datadog?
 [ ] Add failed responses to the dashboard.
+[ ] Consider using Blake3 for hashing requests.
+[ ] Request coalescing should have a timeout = block_time.
