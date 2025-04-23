@@ -50,3 +50,4 @@
 [ ] TODO: default k8s config should make sure the old deployment is not terminated before the new one is started.
 [ ] Check if 127.0.0.1 is good enough for metrics collectors in local network (including k8s)
 [ ] Default project should require a key by default.
+[ ] use another tag for "source" since it may conflict with log source/metric source.

@@ -151,15 +151,23 @@ impl ChainHandler {
         call: RpcMethodCall,
         project_config: &ProjectConfig,
     ) -> RpcResponse {
-        trace!(target: "rpc",  id = ?call.id , method = ?call.method, params = ?call.params, "received method call");
+        let chain_id = self.chain_config.chain.id().to_string();
+        let gateway_project = project_config.name.clone();
         let RpcMethodCall { method, id, .. } = call;
 
         let raw_call = serde_json::json!({
             "id": id,
             "jsonrpc": "2.0", // TODO: is this part necessary? maybe we can remove the jsonrpc field?
-            "method": method,
+            "method": method.clone(),
             "params": call.params
         });
+
+        counter!("rpc_requests_total",
+          "chain_id" => chain_id.clone(),
+          "rpc_method" => method.clone(),
+          "gateway_project" => gateway_project.clone(),
+        )
+        .increment(1);
 
         let req = match serde_json::from_value::<EthRequest>(raw_call.clone()) {
             Ok(req) => req,
@@ -188,28 +196,26 @@ impl ChainHandler {
         let chain_handler_response = self.on_request(&req, raw_call).await;
 
         debug!(
-          chain_id = ?self.chain_config.chain.id(),
-          method = ?method,
-          success = ?chain_handler_response.response_result,
-          source = ?chain_handler_response.response_source,
-          project = ?project_config.name,
+          chain_id = chain_id,
+          rpc_method = ?method,
+          response_success = ?chain_handler_response.response_result,
+          response_source = ?chain_handler_response.response_source,
+          gateway_project = ?project_config.name,
           "RPC response ready",
         );
 
-        let chain_id = self.chain_config.chain.id().to_string();
         let source: Cow<'static, str> = chain_handler_response.response_source.into(); // TODO: is this the right way to do this?
         let success = match chain_handler_response.response_result {
             ResponseResult::Success(_) => "true",
             ResponseResult::Error(_) => "false",
         };
 
-        // TODO: how can i use the x.y namespacing here? they get overwritten to x_y_z
-        counter!("rpc_gateway_response",
+        counter!("rpc_responses_total",
           "chain_id" => chain_id,
-          "method" => method,
-          "success" => success,
-          "source" => source,
-          "project" => project_config.name.clone(),
+          "rpc_method" => method,
+          "response_success" => success,
+          "response_source" => source,
+          "gateway_project" => project_config.name.clone(),
         )
         .increment(1);
 
