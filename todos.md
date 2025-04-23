@@ -51,3 +51,5 @@
 [ ] Check if 127.0.0.1 is good enough for metrics collectors in local network (including k8s)
 [ ] Default project should require a key by default.
 [ ] use another tag for "source" since it may conflict with log source/metric source.
+[ ] How can i visualize the histogram metrics on datadog?
+[ ] Add failed responses to the dashboard.

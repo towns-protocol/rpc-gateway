@@ -9,6 +9,7 @@ use dashmap::DashMap;
 use futures::FutureExt;
 use futures::future::Shared;
 use metrics::counter;
+use metrics::histogram;
 use serde_json::Value;
 use std::borrow::Cow;
 use std::future::Future;
@@ -155,19 +156,14 @@ impl ChainHandler {
         let gateway_project = project_config.name.clone();
         let RpcMethodCall { method, id, .. } = call;
 
+        let start_time = std::time::Instant::now();
+
         let raw_call = serde_json::json!({
             "id": id,
             "jsonrpc": "2.0", // TODO: is this part necessary? maybe we can remove the jsonrpc field?
             "method": method.clone(),
             "params": call.params
         });
-
-        counter!("rpc_requests_total",
-          "chain_id" => chain_id.clone(),
-          "rpc_method" => method.clone(),
-          "gateway_project" => gateway_project.clone(),
-        )
-        .increment(1);
 
         let req = match serde_json::from_value::<EthRequest>(raw_call.clone()) {
             Ok(req) => req,
@@ -211,15 +207,26 @@ impl ChainHandler {
         };
 
         counter!("rpc_responses_total",
-          "chain_id" => chain_id,
-          "rpc_method" => method,
+          "chain_id" => chain_id.clone(),
+          "rpc_method" => method.clone(),
           "response_success" => success,
-          "response_source" => source,
-          "gateway_project" => project_config.name.clone(),
+          "response_source" => source.clone(),
+          "gateway_project" => project_config.name.clone(), // TODO: this should come from the span
         )
         .increment(1);
 
         let response_result = chain_handler_response.response_result.clone();
+
+        // Record response time
+        let duration = start_time.elapsed();
+        histogram!("rpc_response_time_seconds",
+          "chain_id" => chain_id.clone(),
+          "rpc_method" => method.clone(),
+          "response_success" => success,
+          "response_source" => source.clone(),
+          "gateway_project" => project_config.name.clone(),
+        )
+        .record(duration.as_secs_f64());
 
         RpcResponse::new(id, response_result)
     }
