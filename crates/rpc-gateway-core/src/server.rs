@@ -26,16 +26,17 @@ async fn handle_rpc_request_with_project(
         actix_web::error::ErrorBadRequest("Invalid JSON-RPC request")
     })?;
 
-    let project_config = gateway.config.projects.get(&project_name);
-
-    if project_config.is_none() {
-        return Ok(serde_json::to_string(&Response::error(
-            RpcError::internal_error_with("Project not found"),
-        ))?);
-    }
+    let project_config = match gateway.config.projects.get(&project_name) {
+        Some(project_config) => project_config,
+        None => {
+            return Ok(serde_json::to_string(&Response::error(
+                RpcError::internal_error_with("Project not found"),
+            ))?);
+        }
+    };
 
     let response = gateway
-        .handle_request(Some(project_name), project_key, chain_id, request)
+        .handle_request(project_config, project_key, chain_id, request)
         .await;
 
     let response = response.unwrap_or(Response::error(RpcError::internal_error_with(
@@ -55,13 +56,18 @@ async fn handle_rpc_request_without_project(
     query: web::Query<HashMap<String, String>>,
 ) -> Result<String> {
     let chain_id = path.into_inner();
+    let project_key = query.get("key").cloned();
 
     let request: Request = serde_json::from_str(&body).map_err(|e| {
         debug!(error = %e, "Failed to parse request body");
         actix_web::error::ErrorBadRequest("Invalid JSON-RPC request")
     })?;
 
-    let response = gateway.handle_request(None, None, chain_id, request).await;
+    let project_config = gateway.config.projects.get("default").unwrap(); // TODO: make this a function on a ProjectsConfig struct.
+
+    let response = gateway
+        .handle_request(project_config, project_key, chain_id, request)
+        .await;
 
     let response = response.unwrap_or(Response::error(RpcError::internal_error_with(
         "Internal server error",

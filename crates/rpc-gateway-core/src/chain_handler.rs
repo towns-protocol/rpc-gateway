@@ -1,5 +1,5 @@
 use crate::config::{
-    CacheConfig, CannedResponseConfig, ChainConfig, Config, RequestCoalescingConfig,
+    CacheConfig, CannedResponseConfig, ChainConfig, Config, ProjectConfig, RequestCoalescingConfig,
 };
 use anvil_core::eth::EthRequest;
 use anvil_rpc::error::RpcError;
@@ -123,11 +123,15 @@ impl ChainHandler {
     }
 
     /// handle a single RPC method call
-    pub async fn handle_call(&self, call: RpcCall) -> Option<RpcResponse> {
+    pub async fn handle_call(
+        &self,
+        call: RpcCall,
+        project_config: &ProjectConfig,
+    ) -> Option<RpcResponse> {
         match call {
             RpcCall::MethodCall(call) => {
                 trace!(target: "rpc", id = ?call.id , method = ?call.method,  "handling call");
-                Some(self.on_method_call(call).await)
+                Some(self.on_method_call(call, project_config).await)
             }
             RpcCall::Notification(notification) => {
                 // TODO: handle notifications
@@ -142,7 +146,11 @@ impl ChainHandler {
     }
 
     // TODO: how does anvil convert from RpcMethodCall to EthRequest? Do they also parse-down to json first?
-    async fn on_method_call(&self, call: RpcMethodCall) -> RpcResponse {
+    async fn on_method_call(
+        &self,
+        call: RpcMethodCall,
+        project_config: &ProjectConfig,
+    ) -> RpcResponse {
         trace!(target: "rpc",  id = ?call.id , method = ?call.method, params = ?call.params, "received method call");
         let RpcMethodCall { method, id, .. } = call;
 
@@ -184,6 +192,7 @@ impl ChainHandler {
           method = ?method,
           success = ?chain_handler_response.response_result,
           source = ?chain_handler_response.response_source,
+          project = ?project_config.name,
           "RPC response ready",
         );
 
@@ -200,6 +209,7 @@ impl ChainHandler {
           "method" => method,
           "success" => success,
           "source" => source,
+          "project" => project_config.name.clone(),
         )
         .increment(1);
 

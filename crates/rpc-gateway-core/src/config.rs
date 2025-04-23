@@ -44,6 +44,15 @@ pub struct ProjectConfig {
     pub key: Option<String>,
 }
 
+impl Default for ProjectConfig {
+    fn default() -> Self {
+        Self {
+            name: "default".to_string(),
+            key: None,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ServerConfig {
     #[serde(default = "default_host")]
@@ -329,6 +338,16 @@ fn default_weight() -> u32 {
     1
 }
 
+fn default_projects() -> HashMap<String, ProjectConfig> {
+    let mut projects = HashMap::new();
+    projects.insert("default".to_string(), ProjectConfig::default());
+    projects
+}
+
+fn default_chains() -> HashMap<u64, ChainConfig> {
+    HashMap::new()
+}
+
 // Default functions for logging configuration
 fn default_console_enabled() -> bool {
     true
@@ -457,6 +476,7 @@ impl Config {
         }
 
         config.process_urls()?;
+        config.process_project_keys()?;
         Ok(config)
     }
 
@@ -468,6 +488,23 @@ impl Config {
     pub fn from_yaml_path_buf(path: &PathBuf) -> Result<Self, Box<dyn std::error::Error>> {
         let contents = std::fs::read_to_string(path)?;
         Self::from_yaml_str(&contents)
+    }
+
+    fn process_project_keys(&mut self) -> Result<(), Box<dyn std::error::Error>> {
+        // Process project keys
+        for (_, project_config) in &mut self.projects {
+            if let Some(key) = &project_config.key {
+                if key.starts_with('$') {
+                    let env_var = key.trim_start_matches('$');
+                    let env_value = std::env::var(env_var).map_err(|e| {
+                        format!("Environment variable '{}' not found: {}", env_var, e)
+                    })?;
+                    project_config.key = Some(env_value);
+                }
+            }
+        }
+
+        Ok(())
     }
 
     fn process_urls(&mut self) -> Result<(), Box<dyn std::error::Error>> {
@@ -484,40 +521,24 @@ impl Config {
             }
         }
 
-        // Process project keys
-        for (_, project_config) in &mut self.projects {
-            if let Some(key) = &project_config.key {
-                if key.starts_with('$') {
-                    let env_var = key.trim_start_matches('$');
-                    let env_value = std::env::var(env_var).map_err(|e| {
-                        format!("Environment variable '{}' not found: {}", env_var, e)
-                    })?;
-                    project_config.key = Some(env_value);
-                }
-            }
-        }
-
         Ok(())
     }
 }
 
 impl Default for Config {
     fn default() -> Self {
-        let mut chains = HashMap::new();
-        chains.insert(1, ChainConfig::default());
-
         Self {
             server: ServerConfig::default(),
             load_balancing: LoadBalancingStrategy::default(),
             upstream_health_checks: UpstreamHealthChecksConfig::default(),
             error_handling: ErrorHandlingConfig::default(),
             logging: LoggingConfig::default(),
-            cache: CacheConfig::Disabled,
+            cache: CacheConfig::default(),
             canned_responses: CannedResponseConfig::default(),
             request_coalescing: RequestCoalescingConfig::default(),
             metrics: MetricsConfig::default(),
-            projects: HashMap::new(),
-            chains,
+            projects: default_projects(),
+            chains: default_chains(),
             cors: default_cors(),
         }
     }
@@ -884,9 +905,7 @@ mod tests {
         assert!(config.canned_responses.enabled);
         assert!(config.canned_responses.methods.web3_client_version);
         assert!(config.canned_responses.methods.eth_chain_id);
-        assert!(!config.chains.is_empty());
-        assert_eq!(config.chains.len(), 1);
-        assert!(config.chains.contains_key(&1));
+        assert!(config.chains.is_empty());
     }
 
     #[test]
@@ -1927,7 +1946,8 @@ chains:
     #[test]
     fn test_projects_config_default() {
         let config = Config::default();
-        assert!(config.projects.is_empty());
+        assert_eq!(config.projects.len(), 1);
+        assert!(config.projects.contains_key("default"));
     }
 }
 
@@ -1981,6 +2001,10 @@ mod projects_serde {
         let mut map = HashMap::new();
         for project in list {
             map.insert(project.name.clone(), project);
+        }
+
+        if !map.contains_key("default") {
+            map.insert("default".to_string(), ProjectConfig::default());
         }
 
         Ok(map)
