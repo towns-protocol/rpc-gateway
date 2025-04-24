@@ -29,7 +29,7 @@ impl HealthCheckManager {
     }
 
     /// Runs readiness probes in parallel and updates healthy set.
-    pub async fn run_health_checks(&self) {
+    pub async fn run_health_checks_once(&self) {
         let futures = self.all_upstreams.iter().map(|upstream| {
             let upstream = Arc::clone(upstream);
             async move {
@@ -47,23 +47,18 @@ impl HealthCheckManager {
         self.healthy_upstreams.store(Arc::new(healthy));
     }
 
-    // TODO: use a task manager here for graceful shutdown
-    #[instrument()]
-    pub fn start_upstream_health_check_loop(manager: Arc<HealthCheckManager>) {
-        let sleep_duration = manager.config.interval;
+    pub async fn start_upstream_health_check_loop(&self) {
+        let sleep_duration = self.config.interval;
 
         // TODO: consider adding the chain here to help with debugging
-
-        task::spawn(async move {
-            loop {
-                sleep(sleep_duration).await;
-                manager.run_health_checks().await;
-                debug!(
-                    "Health checks loop sleeping for {} seconds",
-                    sleep_duration.as_secs()
-                );
-            }
-        });
+        loop {
+            sleep(sleep_duration).await;
+            self.run_health_checks_once().await;
+            debug!(
+                "Health checks loop sleeping for {} seconds",
+                sleep_duration.as_secs()
+            );
+        }
     }
 
     /// Returns a snapshot of currently healthy upstreams.

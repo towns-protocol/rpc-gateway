@@ -6,6 +6,7 @@ use crate::gateway::Gateway;
 use actix_cors::Cors;
 use actix_web::{App, HttpResponse, HttpServer, Result, web};
 use anvil_rpc::{self, error::RpcError, request::Request, response::Response};
+use tokio_util::task::TaskTracker;
 use tracing::{debug, info};
 use tracing_actix_web::TracingLogger;
 
@@ -88,50 +89,63 @@ async fn readiness_probe() -> Result<String> {
     Ok("OK".to_string())
 }
 
-pub async fn run(gateway: Arc<Gateway>, config: Arc<Config>) -> std::io::Result<()> {
-    info!(
-        host = %config.server.host,
-        port = %config.server.port,
-        "Starting server"
-    );
+pub struct GatewayServer {
+    gateway: Arc<Gateway>,
+    config: Arc<Config>,
+}
 
-    let host = config.server.host.clone();
-    let port = config.server.port;
-    HttpServer::new(move || {
-        let cors_config = &config.cors;
-        let mut cors = Cors::default();
+impl GatewayServer {
+    pub fn new(gateway: Arc<Gateway>, config: Arc<Config>) -> Self {
+        Self { gateway, config }
+    }
 
-        // TODO: make these configurable.
-        if cors_config.allow_any_origin {
-            cors = cors.allow_any_origin();
-            cors = cors
-                .max_age(cors_config.max_age as usize)
-                .allow_any_origin()
-                .allow_any_header()
-                .allow_any_method()
-                .expose_any_header()
-        }
+    pub async fn start(self) -> std::io::Result<()> {
+        info!(
+            host = %self.config.server.host,
+            port = %self.config.server.port,
+            "Starting server"
+        );
 
-        App::new()
-            .wrap(TracingLogger::default())
-            .app_data(web::Data::new(gateway.clone()))
-            .route("/health", web::get().to(liveness_probe))
-            .route("/health/liveness", web::get().to(liveness_probe))
-            .route("/health/readiness", web::get().to(readiness_probe))
-            .route(
-                "/{project_name}/{chain_id}",
-                web::post().to(handle_rpc_request_with_project),
-            )
-            .route(
-                "/{chain_id}",
-                web::post().to(handle_rpc_request_without_project),
-            )
-            .default_service(
-                web::route().to(|| async { HttpResponse::NotFound().body("404 Not Found") }),
-            )
-            .wrap(cors)
-    })
-    .bind((host, port))?
-    .run()
-    .await
+        let host = self.config.server.host.clone();
+        let port = self.config.server.port;
+        HttpServer::new(move || {
+            let cors_config = &self.config.cors;
+            let mut cors = Cors::default();
+
+            // TODO: make these configurable.
+            if cors_config.allow_any_origin {
+                cors = cors.allow_any_origin();
+                cors = cors
+                    .max_age(cors_config.max_age as usize)
+                    .allow_any_origin()
+                    .allow_any_header()
+                    .allow_any_method()
+                    .expose_any_header()
+            }
+
+            let gateway = self.gateway.clone();
+
+            App::new()
+                .wrap(TracingLogger::default())
+                .app_data(web::Data::new(gateway.clone()))
+                .route("/health", web::get().to(liveness_probe))
+                .route("/health/liveness", web::get().to(liveness_probe))
+                .route("/health/readiness", web::get().to(readiness_probe))
+                .route(
+                    "/{project_name}/{chain_id}",
+                    web::post().to(handle_rpc_request_with_project),
+                )
+                .route(
+                    "/{chain_id}",
+                    web::post().to(handle_rpc_request_without_project),
+                )
+                .default_service(
+                    web::route().to(|| async { HttpResponse::NotFound().body("404 Not Found") }),
+                )
+                .wrap(cors)
+        })
+        .bind((host, port))?
+        .run()
+        .await
+    }
 }

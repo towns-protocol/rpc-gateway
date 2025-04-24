@@ -55,3 +55,4 @@
 [ ] Add failed responses to the dashboard.
 [ ] Consider using Blake3 for hashing requests.
 [ ] Request coalescing should have a timeout = block_time.
+[ ] Why is requests per second inconsistent with total requests on the datadog dashboard?

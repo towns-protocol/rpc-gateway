@@ -1,7 +1,4 @@
-use crate::{
-    config::{Config, ProjectConfig},
-    load_balancer::HealthCheckManager,
-};
+use crate::config::{Config, ProjectConfig};
 use anvil_rpc::{
     error::RpcError,
     request::Request,
@@ -37,30 +34,32 @@ impl Gateway {
     }
 
     // TODO: this should be called by the task manager. it should be async.
-    pub fn start_upstream_health_check_loops(&self) {
+    pub async fn start_upstream_health_check_loops(&self) {
         if !self.config.upstream_health_checks.enabled {
             warn!("Upstream health checks are disabled. Not starting health check loops.");
             return;
         }
 
         debug!("Starting upstream health check loops");
-        for handler in self.handlers.values() {
-            // TODO: use a task manager here for graceful shutdown
-            debug!(
-                "Starting upstream health check loop for chain: {}",
-                handler.chain_config.chain
-            );
 
-            let health_check_manager = handler
-                .request_pool
-                .load_balancer
-                .get_health_check_manager();
+        let health_check_futures: Vec<_> = self
+            .handlers
+            .values()
+            .map(|handler| {
+                let manager = handler
+                    .request_pool
+                    .load_balancer
+                    .get_health_check_manager();
+                async move {
+                    manager.start_upstream_health_check_loop().await;
+                }
+            })
+            .collect();
 
-            HealthCheckManager::start_upstream_health_check_loop(health_check_manager);
-        }
+        join_all(health_check_futures).await;
     }
 
-    pub async fn run_upstream_health_checks(&self) {
+    pub async fn run_upstream_health_checks_once(&self) {
         let futures = self.handlers.values().map(|handler| {
             let manager = handler
                 .request_pool
@@ -68,7 +67,7 @@ impl Gateway {
                 .get_health_check_manager();
 
             async move {
-                manager.run_health_checks().await;
+                manager.run_health_checks_once().await;
             }
         });
 
