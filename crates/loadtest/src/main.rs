@@ -1,23 +1,5 @@
-//! Simple Goose load test example. Duplicates the simple example on the
-//! Locust project page (<https://locust.io/>).
-//!
-//! ## License
-//!
-//! Copyright 2020-2022 Jeremy Andrews
-//!
-//! Licensed under the Apache License, Version 2.0 (the "License");
-//! you may not use this file except in compliance with the License.
-//! You may obtain a copy of the License at
-//!
-//! <http://www.apache.org/licenses/LICENSE-2.0>
-//!
-//! Unless required by applicable law or agreed to in writing, software
-//! distributed under the License is distributed on an "AS IS" BASIS,
-//! WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-//! See the License for the specific language governing permissions and
-//! limitations under the License.
-
 use goose::prelude::*;
+use rand::Rng;
 use serde_json::json;
 
 // static PATH: &str = "/loadtest/84532";
@@ -27,16 +9,36 @@ static PATH: &str = "/1";
 async fn main() -> Result<(), GooseError> {
     GooseAttack::initialize()?
         .register_scenario(
-            scenario!("RPCUser")
+            scenario!("basic")
                 .register_transaction(transaction!(eth_block_number).set_name("eth_blockNumber"))
                 .register_transaction(transaction!(eth_get_balance).set_name("eth_getBalance"))
                 .register_transaction(
                     transaction!(eth_get_block_by_number).set_name("eth_getBlockByNumber"),
                 ),
         )
+        // .register_scenario(scenario!("random").register_transaction(
+        //     transaction!(eth_block_by_number_random).set_name("eth_blockByNumberRandom"),
+        // ))
         .execute()
         .await?;
 
+    Ok(())
+}
+
+async fn eth_block_by_number_random(user: &mut GooseUser) -> TransactionResult {
+    let random_number_hex = {
+        let mut rng = rand::rng();
+        let random_number = rng.random_range(0..100000);
+        format!("0x{:x}", random_number)
+    };
+    let request = json!({
+        "jsonrpc": "2.0",
+        "method": "eth_getBlockByNumber",
+        "params": [random_number_hex, false],
+        "id": 1
+    });
+
+    let _response = user.post_json(PATH, &request).await?;
     Ok(())
 }
 
@@ -46,7 +48,7 @@ async fn eth_block_number(user: &mut GooseUser) -> TransactionResult {
         "jsonrpc": "2.0",
         "method": "eth_blockNumber",
         "params": [],
-        "id": 2
+        "id": 1
     });
 
     let _response = user.post_json(PATH, &request).await?;
@@ -57,8 +59,8 @@ async fn eth_get_block_by_number(user: &mut GooseUser) -> TransactionResult {
     let request = json!({
         "jsonrpc": "2.0",
         "method": "eth_getBlockByNumber",
-        "params": ["0x2", false],
-        "id": 2
+        "params": ["latest", false],
+        "id": 1
     });
 
     let _response = user.post_json(PATH, &request).await?;
@@ -73,7 +75,7 @@ async fn eth_get_balance(user: &mut GooseUser) -> TransactionResult {
         "jsonrpc": "2.0",
         "method": "eth_getBalance",
         "params": [address, "latest"],
-        "id": 2
+        "id": 1
     });
 
     let _response = user.post_json(PATH, &request).await?;

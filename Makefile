@@ -158,7 +158,7 @@ dev: ## Start development server with file watching. Usage: make dev CONFIG=path
 loadtest:
 	@echo "Running load test..."
 	@mkdir -p loadtest-reports
-	cargo run --bin loadtest -- --host http://localhost:8080 --report-file loadtest-reports/report.html --run-time 2m --hatch-rate 10 --users 20
+	cargo run --bin loadtest -- --host http://localhost:8080 --report-file loadtest-reports/report.html --run-time 15s --hatch-rate 10 --users 20
 
 .PHONY: test
 test: ## Run all tests.
