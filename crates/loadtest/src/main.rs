@@ -20,6 +20,8 @@
 use goose::prelude::*;
 use serde_json::json;
 
+static PATH: &str = "/loadtest/84532";
+
 #[tokio::main]
 async fn main() -> Result<(), GooseError> {
     GooseAttack::initialize()?
@@ -43,10 +45,10 @@ async fn eth_block_number(user: &mut GooseUser) -> TransactionResult {
         "jsonrpc": "2.0",
         "method": "eth_blockNumber",
         "params": [],
-        "id": 1
+        "id": 2
     });
 
-    let _response = user.post_json("/1", &request).await?;
+    let _response = user.post_json(PATH, &request).await?;
     Ok(())
 }
 
@@ -54,11 +56,11 @@ async fn eth_get_block_by_number(user: &mut GooseUser) -> TransactionResult {
     let request = json!({
         "jsonrpc": "2.0",
         "method": "eth_getBlockByNumber",
-        "params": ["latest", false],
-        "id": 1
+        "params": ["0x2", false],
+        "id": 2
     });
 
-    let _response = user.post_json("/1", &request).await?;
+    let _response = user.post_json(PATH, &request).await?;
     Ok(())
 }
 
@@ -70,9 +72,9 @@ async fn eth_get_balance(user: &mut GooseUser) -> TransactionResult {
         "jsonrpc": "2.0",
         "method": "eth_getBalance",
         "params": [address, "latest"],
-        "id": 1
+        "id": 2
     });
 
-    let _response = user.post_json("/1", &request).await?;
+    let _response = user.post_json(PATH, &request).await?;
     Ok(())
 }
