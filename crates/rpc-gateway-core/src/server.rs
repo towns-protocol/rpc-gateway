@@ -6,7 +6,6 @@ use crate::gateway::Gateway;
 use actix_cors::Cors;
 use actix_web::{App, HttpResponse, HttpServer, Result, web};
 use anvil_rpc::{self, error::RpcError, request::Request, response::Response};
-use tokio_util::task::TaskTracker;
 use tracing::{debug, info};
 use tracing_actix_web::TracingLogger;
 

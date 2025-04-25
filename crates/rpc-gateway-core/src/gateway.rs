@@ -1,4 +1,8 @@
-use crate::config::{Config, ProjectConfig};
+use crate::{
+    cache::{self, RpcCache},
+    config::{Config, ProjectConfig},
+    request_pool::ChainRequestPool,
+};
 use anvil_rpc::{
     error::RpcError,
     request::Request,
@@ -26,7 +30,20 @@ impl Gateway {
 
         // TODO: make sure this chains hashmap is not empty
         for (chain_id, chain_config) in &config.chains {
-            let handler = ChainHandler::new(chain_config, &config);
+            let request_pool = ChainRequestPool::new(
+                chain_config.clone(),
+                config.error_handling.clone(),
+                config.load_balancing.clone(),
+                config.upstream_health_checks.clone(),
+            );
+            let cache = cache::from_config(&config.cache, chain_config);
+            let handler = ChainHandler::new(
+                chain_config,
+                &config.request_coalescing,
+                &config.canned_responses,
+                request_pool,
+                cache,
+            );
             handlers.insert(chain_id.clone(), handler);
         }
 

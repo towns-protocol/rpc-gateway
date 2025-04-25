@@ -14,6 +14,8 @@ use std::{
 };
 use tracing::error;
 
+use crate::config::{CacheConfig, ChainConfig};
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ReqRes {
     pub req: EthRequest,
@@ -120,6 +122,47 @@ pub struct LocalCache {
 }
 
 static ONE_YEAR: Duration = Duration::from_secs(31536000);
+
+pub fn from_config(
+    cache_config: &CacheConfig,
+    chain_config: &ChainConfig,
+) -> Option<Box<dyn RpcCache>> {
+    match (cache_config, chain_config.block_time) {
+        (CacheConfig::Disabled, _) => None,
+        (_, None) => {
+            error!(
+                chain = ?chain_config.chain,
+                "Cache enabled but no block time available. Disabling cache."
+            );
+            None
+        }
+        (CacheConfig::Local(config), Some(block_time)) => {
+            let cache: Box<dyn RpcCache> = Box::new(LocalCache::new(config.capacity, block_time));
+            Some(cache)
+        }
+        (CacheConfig::Redis(config), Some(block_time)) => {
+            match redis::Client::open(config.url.clone()) {
+                Ok(client) => {
+                    let cache: Box<dyn RpcCache> = Box::new(RedisCache::new(
+                        client,
+                        block_time,
+                        chain_config.chain.id(),
+                        config.key_prefix.clone(),
+                    ));
+                    Some(cache)
+                }
+                Err(err) => {
+                    error!(
+                        chain = ?chain_config.chain,
+                        err = %err,
+                        "Failed to connect to Redis cache"
+                    );
+                    panic!("Failed to connect to Redis cache.");
+                }
+            }
+        }
+    }
+}
 
 #[async_trait::async_trait]
 pub trait RpcCache: Send + Sync + std::fmt::Debug {

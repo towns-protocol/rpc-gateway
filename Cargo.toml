@@ -1,5 +1,6 @@
 [workspace]
 members = ["crates/rpc-gateway-core"]
+resolver = "3"
 
 [workspace.package]
 version = "0.1.0"
@@ -17,7 +18,6 @@ repository = "https://github.com/whats-good/rpc-gateway"
 
 [workspace.dependencies]
 arc-swap = "1.7.0"
-async-trait = "0.1"
 clap = { version = "4.4", features = ["derive"] }
 duration-str = "0.17.0"
 moka = { version = "0.12.10", features = ["future"] }

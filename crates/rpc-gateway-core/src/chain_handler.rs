@@ -67,57 +67,19 @@ static CANNED_RESPONSE_CLIENT_VERSION: LazyLock<ResponseResult> = LazyLock::new(
 });
 
 impl ChainHandler {
-    pub fn new(chain_config: &ChainConfig, config: &Config) -> Self {
-        let request_pool = ChainRequestPool::new(
-            chain_config.clone(),
-            config.error_handling.clone(),
-            config.load_balancing.clone(),
-            config.upstream_health_checks.clone(),
-        );
-
-        let cache = match (config.cache.clone(), chain_config.block_time) {
-            (CacheConfig::Disabled, _) => None,
-            (_, None) => {
-                error!(
-                    chain = ?chain_config.chain,
-                    "Cache enabled but no block time available. Disabling cache."
-                );
-                None
-            }
-            (CacheConfig::Local(config), Some(block_time)) => {
-                let cache: Box<dyn RpcCache> =
-                    Box::new(LocalCache::new(config.capacity, block_time));
-                Some(cache)
-            }
-            (CacheConfig::Redis(config), Some(block_time)) => {
-                match redis::Client::open(config.url) {
-                    Ok(client) => {
-                        let cache: Box<dyn RpcCache> = Box::new(RedisCache::new(
-                            client,
-                            block_time,
-                            chain_config.chain.id(),
-                            config.key_prefix,
-                        ));
-                        Some(cache)
-                    }
-                    Err(err) => {
-                        error!(
-                            chain = ?chain_config.chain,
-                            err = %err,
-                            "Failed to connect to Redis cache"
-                        );
-                        panic!("Failed to connect to Redis cache.");
-                    }
-                }
-            }
-        };
-
+    pub fn new(
+        chain_config: &ChainConfig,
+        request_coalescing_config: &RequestCoalescingConfig,
+        canned_responses_config: &CannedResponseConfig,
+        request_pool: ChainRequestPool,
+        cache: Option<Box<dyn RpcCache>>,
+    ) -> Self {
         Self {
             chain_config: Arc::new(chain_config.clone()),
             request_pool: Arc::new(request_pool),
             cache: cache.map(Arc::new),
-            request_coalescing_config: config.request_coalescing.clone(),
-            canned_responses_config: config.canned_responses.clone(),
+            request_coalescing_config: request_coalescing_config.clone(),
+            canned_responses_config: canned_responses_config.clone(),
             in_flight_requests: Arc::new(DashMap::new()),
         }
     }
@@ -154,7 +116,7 @@ impl ChainHandler {
         let chain_id = self.chain_config.chain.id().to_string();
         let RpcMethodCall { method, id, .. } = call;
 
-        let start_time = std::time::Instant::now();
+        // let start_time = std::time::Instant::now();
 
         let raw_call = serde_json::json!({
             "id": id,
@@ -216,15 +178,15 @@ impl ChainHandler {
         let response_result = chain_handler_response.response_result.clone();
 
         // Record response time
-        let duration = start_time.elapsed(); // TODO: is this the best way to measure time?
-        histogram!("rpc_response_time_seconds",
-          "chain_id" => chain_id.clone(),
-          "rpc_method" => method.clone(),
-          "response_success" => success,
-          "response_source" => source.clone(),
-          "gateway_project" => project_config.name.clone(),
-        )
-        .record(duration.as_secs_f64());
+        // let duration = start_time.elapsed(); // TODO: is this the best way to measure time?
+        // histogram!("rpc_response_time_seconds",
+        //   "chain_id" => chain_id.clone(),
+        //   "rpc_method" => method.clone(),
+        //   "response_success" => success,
+        //   "response_source" => source.clone(),
+        //   "gateway_project" => project_config.name.clone(),
+        // )
+        // .record(duration.as_secs_f64());
 
         RpcResponse::new(id, response_result)
     }
