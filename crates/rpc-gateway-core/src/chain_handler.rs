@@ -232,7 +232,7 @@ impl ChainHandler {
             let in_flight_requests = self.in_flight_requests.clone();
             match self.in_flight_requests.entry(coalescing_key.clone()) {
                 dashmap::Entry::Occupied(e) => {
-                    debug!(?coalescing_key, "returning existing future");
+                    trace!(?coalescing_key, "returning existing future");
                     (e.get().clone(), true)
                 }
                 dashmap::Entry::Vacant(e) => {
@@ -255,7 +255,7 @@ impl ChainHandler {
                             _ = tokio::time::sleep(timeout) => false
                         );
 
-                        debug!(
+                        trace!(
                             ?coalescing_key_for_removal,
                             did_complete = ?did_complete,
                             "removing coalesced request future"
@@ -263,7 +263,7 @@ impl ChainHandler {
                         in_flight_requests.remove(&coalescing_key_for_removal);
                     });
 
-                    debug!(?coalescing_key, "storing coalesced request future");
+                    trace!(?coalescing_key, "storing coalesced request future");
                     e.insert(inner_fut.clone());
                     (inner_fut, false)
                 }

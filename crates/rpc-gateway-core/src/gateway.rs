@@ -16,7 +16,7 @@ use futures::{
 };
 use nonempty::NonEmpty;
 use std::{collections::HashMap, sync::Arc};
-use tracing::{debug, info, warn};
+use tracing::{debug, warn};
 
 use crate::chain_handler::ChainHandler;
 
@@ -28,7 +28,6 @@ pub struct Gateway {
 
 impl Gateway {
     pub fn new(config: Config) -> Self {
-        info!(config = ?config, "Creating new Gateway");
         let mut handlers = HashMap::new();
 
         // TODO: make sure this chains hashmap is not empty

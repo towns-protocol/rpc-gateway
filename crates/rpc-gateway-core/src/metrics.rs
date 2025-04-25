@@ -3,7 +3,7 @@ use tracing::info;
 
 use crate::config::MetricsConfig;
 
-pub async fn run(config: &MetricsConfig) {
+pub fn run(config: &MetricsConfig) {
     // Build + register the global recorder and start the HTTP server.
     let host_bytes = config
         .host_bytes()

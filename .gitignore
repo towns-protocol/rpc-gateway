@@ -5,3 +5,4 @@
 helm/minikube-example/charts
 helm/minikube-example/Chart.lock
 log.json
+loadtest-reports/*

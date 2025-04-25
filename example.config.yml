@@ -8,10 +8,8 @@ cors:
 load_balancing:
   strategy: "primary_only"
 
-# request_coalescing:
-#   enabled: false
-#   # timeout: "block_time"
-#   # ttl: "block_time"
+request_coalescing:
+  enabled: true
 
 upstream_health_checks:
   enabled: true
@@ -35,8 +33,10 @@ cache:
 
 logging:
   console:
-    enabled: true
-    # rust_log: "debug,rpc_gateway=debug,actix_server=error,actix_web=error,tracing_actix_web=error,redis=error,tokio=error"
+    # enabled: true
+    enabled: false
+    rust_log: "error,rpc_gateway_core::chain_handler=debug"
+    # rust_log: "debug"
     format: "text"
     include_target: true
     include_thread_ids: true
@@ -44,7 +44,8 @@ logging:
     include_file: true
     include_line_number: true
   file:
-    enabled: true
+    # enabled: true
+    enabled: false
     # rust_log: "debug,rpc_gateway=debug,actix_server=error,actix_web=error,tracing_actix_web=error,redis=error,tokio=error"
     format: "json"
     path: "logs/rpc-gateway.log"

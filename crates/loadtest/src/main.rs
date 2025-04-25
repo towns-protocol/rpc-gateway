@@ -25,26 +25,15 @@ async fn main() -> Result<(), GooseError> {
     GooseAttack::initialize()?
         .register_scenario(
             scenario!("RPCUser")
-                .register_transaction(transaction!(eth_chain_id).set_name("eth_chainId"))
                 .register_transaction(transaction!(eth_block_number).set_name("eth_blockNumber"))
-                .register_transaction(transaction!(eth_get_balance).set_name("eth_getBalance")),
+                .register_transaction(transaction!(eth_get_balance).set_name("eth_getBalance"))
+                .register_transaction(
+                    transaction!(eth_get_block_by_number).set_name("eth_getBlockByNumber"),
+                ),
         )
         .execute()
         .await?;
 
-    Ok(())
-}
-
-/// Get the chain ID of the connected node
-async fn eth_chain_id(user: &mut GooseUser) -> TransactionResult {
-    let request = json!({
-        "jsonrpc": "2.0",
-        "method": "eth_chainId",
-        "params": [],
-        "id": 1
-    });
-
-    let _response = user.post_json("/1", &request).await?;
     Ok(())
 }
 
@@ -54,6 +43,18 @@ async fn eth_block_number(user: &mut GooseUser) -> TransactionResult {
         "jsonrpc": "2.0",
         "method": "eth_blockNumber",
         "params": [],
+        "id": 1
+    });
+
+    let _response = user.post_json("/1", &request).await?;
+    Ok(())
+}
+
+async fn eth_get_block_by_number(user: &mut GooseUser) -> TransactionResult {
+    let request = json!({
+        "jsonrpc": "2.0",
+        "method": "eth_getBlockByNumber",
+        "params": ["latest", false],
         "id": 1
     });
 

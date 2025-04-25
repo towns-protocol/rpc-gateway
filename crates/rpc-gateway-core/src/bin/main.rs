@@ -1,7 +1,8 @@
 use clap::Parser;
 use rpc_gateway_core::{cli::Cli, config::Config, gateway::Gateway, logging, server};
 use std::sync::Arc;
-use tracing::debug;
+use tokio_util::{sync::CancellationToken, task::TaskTracker};
+use tracing::{debug, info};
 
 #[actix_web::main]
 async fn main() {
@@ -14,36 +15,59 @@ async fn main() {
     logging::init_logging(&config);
 
     let gateway = Arc::new(Gateway::new(config.clone()));
-    debug!(gateway = ?gateway, "Created gateway");
+    debug!(
+        server = ?config.server,
+        metrics = ?config.metrics,
+        chains = ?config.chains,
+        cors = ?config.cors,
+        projects = ?config.projects,
+        upstream_health_checks = ?config.upstream_health_checks,
+        error_handling = ?config.error_handling,
+        canned_responses = ?config.canned_responses,
+        cache = ?config.cache,
+        server = ?config.server,
+        metrics = ?config.metrics,
+        load_balancing = ?config.load_balancing,
+        request_coalescing = ?config.request_coalescing,
+        logging = ?config.logging,
+        "Starting gateway"
+    );
 
     gateway.run_upstream_health_checks_once().await;
     debug!("Ran upstream health checks");
 
-    let gateway_clone = gateway.clone();
-    let start_upstream_health_check_loops = async move {
-        gateway_clone.start_upstream_health_check_loops().await;
-    };
+    let task_tracker = TaskTracker::new();
 
-    // let tracker = TaskTracker::new();
+    let token = CancellationToken::new();
+
+    let gateway_clone = gateway.clone();
+    let token_clone = token.clone();
+
+    task_tracker.spawn(async move {
+        tokio::select! {
+            _ = token_clone.cancelled() => {
+                debug!("Stopping all health check loops");
+            }
+            _ = gateway_clone.start_upstream_health_check_loops() => {}
+        }
+        debug!("All health check loops stopped");
+    });
+
+    task_tracker.close();
 
     let config = Arc::new(config);
-
     let config_clone = config.clone();
-    let start_metrics_server = async move {
-        rpc_gateway_core::metrics::run(&config_clone.metrics).await;
-    };
+
+    rpc_gateway_core::metrics::run(&config_clone.metrics);
 
     let gateway_clone = gateway.clone();
-    let config_clone = config.clone();
-    let start_server = async move {
-        let config_clone = config_clone.clone();
-        let server = server::GatewayServer::new(gateway_clone, config_clone);
-        server.start().await.expect("Failed to run server");
-    };
 
-    tokio::join!(
-        start_metrics_server,
-        start_server,
-        start_upstream_health_check_loops
-    );
+    let server = server::GatewayServer::new(gateway_clone, config_clone);
+    server.start().await.expect("Failed to run server");
+    info!("Gateway server shut down. Waiting for remaining tasks to complete...");
+
+    token.cancel();
+    task_tracker.wait().await;
+
+    info!("All tasks completed. Goodbye!");
 }
