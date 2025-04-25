@@ -1,10 +1,7 @@
-use crate::config::{
-    ChainConfig, ErrorHandlingConfig, LoadBalancingStrategy, UpstreamHealthChecksConfig,
-};
-use crate::load_balancer::{LoadBalancer, create_load_balancer};
-use crate::upstream::{Upstream, UpstreamError};
+use crate::config::{ChainConfig, ErrorHandlingConfig};
+use crate::load_balancer::LoadBalancer;
+use crate::upstream::UpstreamError;
 use anvil_rpc::response::RpcResponse;
-use nonempty::NonEmpty;
 use serde_json::Value;
 use std::sync::Arc;
 use tracing::{debug, error, instrument, warn};
@@ -24,35 +21,10 @@ pub enum RequestPoolError {
 }
 
 impl ChainRequestPool {
-    pub fn new(
-        chain_config: ChainConfig,
-        error_handling: ErrorHandlingConfig,
-        load_balancing_strategy: LoadBalancingStrategy,
-        upstream_health_checks_config: UpstreamHealthChecksConfig,
-    ) -> Self {
-        debug!(
-            chain = ?chain_config.chain,
-            "Creating new ChainRequestPool"
-        );
-
-        let upstreams = NonEmpty::from_vec(
-            chain_config
-                .upstreams
-                .iter()
-                .map(|config| Arc::new(Upstream::new(config.clone(), chain_config.chain)))
-                .collect::<Vec<_>>(),
-        )
-        .expect("Chain config must have at least one upstream");
-
-        debug!(upstreams = ?upstreams, "Created upstreams");
-
+    pub fn new(error_handling: ErrorHandlingConfig, load_balancer: Arc<dyn LoadBalancer>) -> Self {
         Self {
             error_handling: Arc::new(error_handling),
-            load_balancer: create_load_balancer(
-                load_balancing_strategy,
-                upstream_health_checks_config,
-                upstreams,
-            ),
+            load_balancer,
         }
     }
 

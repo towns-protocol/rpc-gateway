@@ -112,7 +112,7 @@ impl LoadBalancer for PrimaryOnlyLoadBalancer {
     }
 }
 
-pub fn create_load_balancer(
+pub fn from_config(
     load_balancing_strategy: LoadBalancingStrategy,
     upstream_health_checks_config: UpstreamHealthChecksConfig,
     all_upstreams: NonEmpty<Arc<Upstream>>,

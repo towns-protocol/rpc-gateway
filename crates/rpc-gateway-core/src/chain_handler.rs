@@ -1,7 +1,5 @@
-use crate::cache::{LocalCache, RedisCache, RpcCache};
-use crate::config::{
-    CacheConfig, CannedResponseConfig, ChainConfig, Config, ProjectConfig, RequestCoalescingConfig,
-};
+use crate::cache::RpcCache;
+use crate::config::{CannedResponseConfig, ChainConfig, ProjectConfig, RequestCoalescingConfig};
 use crate::request_pool::{ChainRequestPool, RequestPoolError};
 use anvil_core::eth::EthRequest;
 use anvil_rpc::error::RpcError;
@@ -12,6 +10,7 @@ use futures::FutureExt;
 use futures::future::Shared;
 use metrics::counter;
 use metrics::histogram;
+use nonempty::NonEmpty;
 use serde_json::Value;
 use std::borrow::Cow;
 use std::future::Future;
@@ -19,6 +18,7 @@ use std::pin::Pin;
 use std::sync::Arc;
 use std::time::Duration;
 use tracing::{debug, error, info, instrument, trace, warn};
+use url::Url;
 
 #[derive(Debug, Clone)]
 enum ChainHandlerResponseSource {

@@ -1,7 +1,9 @@
 use crate::{
     cache::{self, RpcCache},
     config::{Config, ProjectConfig},
+    load_balancer,
     request_pool::ChainRequestPool,
+    upstream::Upstream,
 };
 use anvil_rpc::{
     error::RpcError,
@@ -12,7 +14,8 @@ use futures::{
     FutureExt,
     future::{self, join_all},
 };
-use std::collections::HashMap;
+use nonempty::NonEmpty;
+use std::{collections::HashMap, sync::Arc};
 use tracing::{debug, info, warn};
 
 use crate::chain_handler::ChainHandler;
@@ -30,13 +33,21 @@ impl Gateway {
 
         // TODO: make sure this chains hashmap is not empty
         for (chain_id, chain_config) in &config.chains {
-            let request_pool = ChainRequestPool::new(
-                chain_config.clone(),
-                config.error_handling.clone(),
+            let cache = cache::from_config(&config.cache, chain_config);
+            let upstreams = NonEmpty::from_vec(
+                chain_config
+                    .upstreams
+                    .iter()
+                    .map(|config| Arc::new(Upstream::new(config.clone(), chain_config.chain)))
+                    .collect::<Vec<_>>(),
+            )
+            .expect("Chain config must have at least one upstream");
+            let load_balancer = load_balancer::from_config(
                 config.load_balancing.clone(),
                 config.upstream_health_checks.clone(),
+                upstreams,
             );
-            let cache = cache::from_config(&config.cache, chain_config);
+            let request_pool = ChainRequestPool::new(config.error_handling.clone(), load_balancer);
             let handler = ChainHandler::new(
                 chain_config,
                 &config.request_coalescing,
