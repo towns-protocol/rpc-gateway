@@ -62,6 +62,8 @@ projects:
   - name: "web-app"
     key: "$WEB_APP_KEY"
 
+  - name: "loadtest"
+
 chains:
   1:
     upstreams:

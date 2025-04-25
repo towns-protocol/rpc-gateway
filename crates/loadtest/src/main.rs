@@ -20,7 +20,8 @@
 use goose::prelude::*;
 use serde_json::json;
 
-static PATH: &str = "/loadtest/84532";
+// static PATH: &str = "/loadtest/84532";
+static PATH: &str = "/1";
 
 #[tokio::main]
 async fn main() -> Result<(), GooseError> {
