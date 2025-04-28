@@ -65,6 +65,12 @@ pub struct ServerConfig {
 pub struct CorsConfig {
     #[serde(default = "default_allow_any_origin")]
     pub allow_any_origin: bool,
+    #[serde(default = "default_allow_any_header")]
+    pub allow_any_header: bool,
+    #[serde(default = "default_allow_any_method")]
+    pub allow_any_method: bool,
+    #[serde(default = "default_expose_any_header")]
+    pub expose_any_header: bool,
     #[serde(default = "default_allowed_origins")]
     pub allowed_origins: Vec<String>,
     #[serde(default = "default_allowed_methods")]
@@ -1958,6 +1964,9 @@ fn default_redis_url() -> String {
 fn default_cors() -> CorsConfig {
     CorsConfig {
         allow_any_origin: default_allow_any_origin(),
+        allow_any_header: default_allow_any_header(),
+        allow_any_method: default_allow_any_method(),
+        expose_any_header: default_expose_any_header(),
         allowed_origins: default_allowed_origins(),
         allowed_methods: default_allowed_methods(),
         allowed_headers: default_allowed_headers(),
@@ -1966,7 +1975,19 @@ fn default_cors() -> CorsConfig {
 }
 
 fn default_allow_any_origin() -> bool {
-    false
+    true
+}
+
+fn default_allow_any_header() -> bool {
+    true
+}
+
+fn default_allow_any_method() -> bool {
+    true
+}
+
+fn default_expose_any_header() -> bool {
+    true
 }
 
 fn default_allowed_origins() -> Vec<String> {
@@ -1974,7 +1995,8 @@ fn default_allowed_origins() -> Vec<String> {
 }
 
 fn default_allowed_methods() -> Vec<String> {
-    vec!["GET".to_string(), "POST".to_string(), "OPTIONS".to_string()]
+    // TODO: consider adding GET in the future.
+    vec!["POST".to_string(), "OPTIONS".to_string()]
 }
 
 fn default_allowed_headers() -> Vec<String> {

@@ -2,6 +2,7 @@ pub mod cache;
 pub mod chain_handler;
 pub mod cli;
 pub mod config;
+pub mod cors;
 pub mod gateway;
 pub mod load_balancer;
 pub mod logging;

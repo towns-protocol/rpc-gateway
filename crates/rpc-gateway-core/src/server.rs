@@ -1,8 +1,8 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use crate::config::Config;
 use crate::gateway::Gateway;
+use crate::{config::Config, cors::cors_middleware};
 use actix_cors::Cors;
 use actix_web::{App, HttpResponse, HttpServer, Result, web};
 use anvil_rpc::{self, error::RpcError, request::Request, response::Response};
@@ -11,7 +11,7 @@ use tracing_actix_web::TracingLogger;
 
 // TODO: add better error handling.
 // TODO: this should instrument with debug level, not info.
-#[tracing::instrument(skip(path, gateway))]
+#[tracing::instrument(skip(path, gateway, query))]
 async fn handle_rpc_request_with_project(
     path: web::Path<(String, u64)>,
     body: String,
@@ -48,7 +48,7 @@ async fn handle_rpc_request_with_project(
     Ok(response_string)
 }
 
-#[tracing::instrument(skip(path, gateway))]
+#[tracing::instrument(skip(path, gateway, query))]
 async fn handle_rpc_request_without_project(
     path: web::Path<u64>,
     body: String,
@@ -108,20 +108,7 @@ impl GatewayServer {
         let host = self.config.server.host.clone();
         let port = self.config.server.port;
         HttpServer::new(move || {
-            let cors_config = &self.config.cors;
-            let mut cors = Cors::default();
-
-            // TODO: make these configurable.
-            if cors_config.allow_any_origin {
-                cors = cors.allow_any_origin();
-                cors = cors
-                    .max_age(cors_config.max_age as usize)
-                    .allow_any_origin()
-                    .allow_any_header()
-                    .allow_any_method()
-                    .expose_any_header()
-            }
-
+            let cors = cors_middleware(&self.config.cors);
             let gateway = self.gateway.clone();
 
             App::new()
