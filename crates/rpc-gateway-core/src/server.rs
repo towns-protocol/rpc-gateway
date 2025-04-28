@@ -1,30 +1,46 @@
-use std::collections::HashMap;
-use std::sync::Arc;
-
-use crate::gateway::Gateway;
+use crate::config::ProjectConfig;
+use crate::gateway::{Gateway, GatewayRequest};
 use crate::{config::Config, cors::cors_middleware};
-use actix_cors::Cors;
 use actix_web::{App, HttpResponse, HttpServer, Result, web};
 use anvil_rpc::{self, error::RpcError, request::Request, response::Response};
+use std::collections::HashMap;
+use std::sync::Arc;
 use tracing::{debug, info};
 use tracing_actix_web::TracingLogger;
 
-// TODO: add better error handling.
-// TODO: this should instrument with debug level, not info.
-#[tracing::instrument(skip(path, gateway, query))]
-async fn handle_rpc_request_with_project(
-    path: web::Path<(String, u64)>,
+async fn handle_rpc_request_inner(
+    chain_id: u64,
+    query: web::Query<HashMap<String, String>>,
     body: String,
     gateway: web::Data<Arc<Gateway>>,
-    query: web::Query<HashMap<String, String>>,
+    project_config: ProjectConfig,
 ) -> Result<String> {
-    let (project_name, chain_id) = path.into_inner();
     let project_key = query.get("key").cloned();
-
     let request: Request = serde_json::from_str(&body).map_err(|e| {
         debug!(error = %e, "Failed to parse request body");
         actix_web::error::ErrorBadRequest("Invalid JSON-RPC request")
     })?;
+
+    let gateway_request = GatewayRequest::new(project_config, project_key, chain_id, request);
+    let response = gateway
+        .handle_request(gateway_request)
+        .await
+        .unwrap_or(Response::error(RpcError::internal_error_with(
+            "Internal server error",
+        )));
+
+    let response_string = serde_json::to_string(&response)?;
+
+    Ok(response_string)
+}
+
+async fn handle_rpc_request_with_project(
+    path: web::Path<(String, u64)>,
+    query: web::Query<HashMap<String, String>>,
+    body: String,
+    gateway: web::Data<Arc<Gateway>>,
+) -> Result<String> {
+    let (project_name, chain_id) = path.into_inner();
 
     let project_config = match gateway.config.projects.get(&project_name) {
         Some(project_config) => project_config,
@@ -35,47 +51,33 @@ async fn handle_rpc_request_with_project(
         }
     };
 
-    let response = gateway
-        .handle_request(project_config, project_key, chain_id, request)
-        .await;
-
-    let response = response.unwrap_or(Response::error(RpcError::internal_error_with(
-        "Internal server error",
-    )));
-
-    let response_string = serde_json::to_string(&response)?;
-
-    Ok(response_string)
+    handle_rpc_request_inner(
+        chain_id,
+        query,
+        body,
+        gateway.clone(),        // TODO: do i need to clone here?
+        project_config.clone(), // TODO: do i need to clone here?
+    )
+    .await
 }
 
-#[tracing::instrument(skip(path, gateway, query))]
 async fn handle_rpc_request_without_project(
     path: web::Path<u64>,
+    query: web::Query<HashMap<String, String>>,
     body: String,
     gateway: web::Data<Arc<Gateway>>,
-    query: web::Query<HashMap<String, String>>,
 ) -> Result<String> {
     let chain_id = path.into_inner();
-    let project_key = query.get("key").cloned();
-
-    let request: Request = serde_json::from_str(&body).map_err(|e| {
-        debug!(error = %e, "Failed to parse request body");
-        actix_web::error::ErrorBadRequest("Invalid JSON-RPC request")
-    })?;
-
     let project_config = gateway.config.projects.get("default").unwrap(); // TODO: make this a function on a ProjectsConfig struct.
 
-    let response = gateway
-        .handle_request(project_config, project_key, chain_id, request)
-        .await;
-
-    let response = response.unwrap_or(Response::error(RpcError::internal_error_with(
-        "Internal server error",
-    )));
-
-    let response_string = serde_json::to_string(&response)?;
-
-    Ok(response_string)
+    handle_rpc_request_inner(
+        chain_id,
+        query,
+        body,
+        gateway.clone(),        // TODO: do i need to clone here?
+        project_config.clone(), // TODO: do i need to clone here?
+    )
+    .await
 }
 
 async fn liveness_probe() -> Result<String> {
