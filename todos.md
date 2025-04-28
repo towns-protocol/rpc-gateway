@@ -56,3 +56,4 @@
 [ ] Request coalescing should have a timeout = block_time.
 [ ] Why is requests per second inconsistent with total requests on the datadog dashboard?
 [ ] Decide between hyper and reqwest for the client.
+[ ] Add jwt public key validation
