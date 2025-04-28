@@ -21,6 +21,30 @@ use tracing::{debug, warn};
 use crate::chain_handler::ChainHandler;
 
 #[derive(Debug)]
+pub struct GatewayRequest {
+    pub project_config: ProjectConfig,
+    pub key: Option<String>,
+    pub chain_id: u64,
+    pub req: anvil_rpc::request::Request,
+}
+
+impl GatewayRequest {
+    pub fn new(
+        project_config: ProjectConfig,
+        key: Option<String>,
+        chain_id: u64,
+        req: Request,
+    ) -> Self {
+        Self {
+            project_config,
+            key,
+            chain_id,
+            req,
+        }
+    }
+}
+
+#[derive(Debug)]
 pub struct Gateway {
     handlers: HashMap<u64, ChainHandler>,
     pub config: Config, // TODO: make this private
@@ -101,16 +125,10 @@ impl Gateway {
         join_all(futures).await;
     }
 
-    pub async fn handle_request(
-        &self,
-        project_config: &ProjectConfig,
-        key: Option<String>,
-        chain_id: u64,
-        req: Request,
-    ) -> Option<Response> {
-        let is_authorized = project_config.key == key;
+    pub async fn handle_request(&self, gateway_request: GatewayRequest) -> Option<Response> {
+        let is_authorized = gateway_request.project_config.key == gateway_request.key;
 
-        let chain_handler = match self.handlers.get(&chain_id) {
+        let chain_handler = match self.handlers.get(&gateway_request.chain_id) {
             Some(chain_handler) => chain_handler,
             None => {
                 let error = Response::error(RpcError::internal_error_with("Chain not supported"));
@@ -118,7 +136,9 @@ impl Gateway {
             }
         };
 
-        match (req, is_authorized) {
+        let project_config = &gateway_request.project_config;
+
+        match (gateway_request.req, is_authorized) {
             (Request::Single(call), true) => chain_handler
                 .handle_call(call, project_config)
                 .await
