@@ -1,6 +1,5 @@
 use actix_cors::Cors;
-
-use crate::config::CorsConfig;
+use rpc_gateway_config::CorsConfig;
 
 pub fn cors_middleware(cors_config: &CorsConfig) -> Cors {
     let mut cors = Cors::default().max_age(cors_config.max_age as usize);

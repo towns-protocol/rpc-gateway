@@ -5,6 +5,7 @@ use async_trait;
 use moka::Expiry;
 use moka::future::Cache;
 use redis::{AsyncCommands, FromRedisValue, RedisWrite, ToRedisArgs};
+use rpc_gateway_config::{CacheConfig, ChainConfig};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::{
@@ -13,8 +14,6 @@ use std::{
     time::{Duration, Instant},
 };
 use tracing::error;
-
-use crate::config::{CacheConfig, ChainConfig};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ReqRes {

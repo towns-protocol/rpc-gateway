@@ -57,3 +57,5 @@
 [ ] Why is requests per second inconsistent with total requests on the datadog dashboard?
 [ ] Decide between hyper and reqwest for the client.
 [ ] Add jwt public key validation
+[ ] Allow the user to configure cors settings per project, chain and upstream.
+[ ] What are some invalid RPC responses that we receive? Which ones should be error-logged and which ones should be just forwarded to

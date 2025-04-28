@@ -3,13 +3,11 @@ use std::{fmt, sync::Arc};
 use arc_swap::ArcSwap;
 use futures::future::join_all;
 use nonempty::NonEmpty;
-use tokio::{task, time::sleep};
-use tracing::{debug, instrument};
+use rpc_gateway_config::{LoadBalancingStrategy, UpstreamHealthChecksConfig};
+use tokio::time::sleep;
+use tracing::debug;
 
-use crate::{
-    config::{LoadBalancingStrategy, UpstreamHealthChecksConfig},
-    upstream::Upstream,
-};
+use crate::upstream::Upstream;
 
 /// Tracks upstream health and exposes the healthy set.
 #[derive(Debug)]

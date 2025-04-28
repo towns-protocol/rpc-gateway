@@ -1,5 +1,6 @@
 use clap::Parser;
-use rpc_gateway_core::{cli::Cli, config::Config, gateway::Gateway, logging, server};
+use rpc_gateway_config::Config;
+use rpc_gateway_core::{cli::Cli, gateway::Gateway, logging, server};
 use std::sync::Arc;
 use tokio_util::{sync::CancellationToken, task::TaskTracker};
 use tracing::{debug, info};

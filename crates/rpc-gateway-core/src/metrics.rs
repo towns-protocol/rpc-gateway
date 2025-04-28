@@ -1,7 +1,6 @@
 use metrics_exporter_prometheus::PrometheusBuilder;
+use rpc_gateway_config::MetricsConfig;
 use tracing::info;
-
-use crate::config::MetricsConfig;
 
 pub fn run(config: &MetricsConfig) {
     // Build + register the global recorder and start the HTTP server.

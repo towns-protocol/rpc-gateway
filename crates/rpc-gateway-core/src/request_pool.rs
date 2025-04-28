@@ -1,7 +1,7 @@
-use crate::config::{ChainConfig, ErrorHandlingConfig};
 use crate::load_balancer::LoadBalancer;
 use crate::upstream::UpstreamError;
 use anvil_rpc::response::RpcResponse;
+use rpc_gateway_config::ErrorHandlingConfig;
 use serde_json::Value;
 use std::sync::Arc;
 use tracing::{debug, error, instrument, warn};

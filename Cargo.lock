@@ -5860,6 +5860,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "rpc-gateway-config"
+version = "0.1.0"
+dependencies = [
+ "alloy-chains 0.2.0",
+ "alloy-primitives 1.0.0",
+ "duration-str",
+ "nonempty",
+ "serde",
+ "serde_json",
+ "serde_yaml",
+ "url",
+]
+
+[[package]]
 name = "rpc-gateway-core"
 version = "0.1.0"
 dependencies = [
@@ -5887,6 +5901,7 @@ dependencies = [
  "rand 0.9.0",
  "redis",
  "reqwest",
+ "rpc-gateway-config",
  "serde",
  "serde_json",
  "serde_yaml",

@@ -1,11 +1,11 @@
 use std::time::Duration;
 
-use crate::config::UpstreamConfig;
 use alloy_chains::Chain;
 use alloy_primitives::U64;
 use anvil_rpc::response::{ResponseResult, RpcResponse};
 use rand::Rng;
 use reqwest::Client;
+use rpc_gateway_config::UpstreamConfig;
 use serde_json::{Value, json};
 use tracing::{debug, error, info, instrument, warn};
 

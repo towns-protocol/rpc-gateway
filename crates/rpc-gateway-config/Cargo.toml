@@ -1,0 +1,23 @@
+[package]
+name = "rpc-gateway-config"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+exclude.workspace = true
+homepage.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+alloy-chains.workspace = true
+alloy-primitives.workspace = true
+duration-str.workspace = true
+nonempty.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+serde_yaml.workspace = true
+url.workspace = true
+
+[lints]
+workspace = true

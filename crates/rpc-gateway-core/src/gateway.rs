@@ -1,10 +1,4 @@
-use crate::{
-    cache::{self, RpcCache},
-    config::{Config, ProjectConfig},
-    load_balancer,
-    request_pool::ChainRequestPool,
-    upstream::Upstream,
-};
+use crate::{cache, load_balancer, request_pool::ChainRequestPool, upstream::Upstream};
 use anvil_rpc::{
     error::RpcError,
     request::Request,
@@ -15,6 +9,7 @@ use futures::{
     future::{self, join_all},
 };
 use nonempty::NonEmpty;
+use rpc_gateway_config::{Config, ProjectConfig};
 use std::{collections::HashMap, sync::Arc};
 use tracing::{debug, warn};
 

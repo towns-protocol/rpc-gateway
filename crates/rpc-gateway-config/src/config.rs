@@ -1,347 +1,62 @@
 use alloy_chains::Chain;
-use duration_str::deserialize_duration;
-use nonempty::NonEmpty;
-use serde::{Deserialize, Deserializer, Serialize};
+use serde::{Deserialize, Serialize};
 use serde_yaml;
 use std::collections::HashMap;
 use std::path::PathBuf;
-use std::time::Duration;
 use url::Url;
+
+use crate::cache_config::CacheConfig;
+use crate::canned_response_config::CannedResponseConfig;
+use crate::chain_config::ChainConfig;
+use crate::cors_config::CorsConfig;
+use crate::error_handling_config::ErrorHandlingConfig;
+use crate::load_balancing_config::LoadBalancingStrategy;
+use crate::logging_config::LoggingConfig;
+use crate::metrics_config::MetricsConfig;
+use crate::project_config::ProjectConfig;
+use crate::request_coalescing_config::RequestCoalescingConfig;
+use crate::server_config::ServerConfig;
+use crate::upstream_health_checks_config::UpstreamHealthChecksConfig;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Config {
     #[serde(default)]
     pub server: ServerConfig,
+
     #[serde(default)]
     pub load_balancing: LoadBalancingStrategy,
+
     #[serde(default)]
     pub upstream_health_checks: UpstreamHealthChecksConfig,
+
     #[serde(default)]
     pub error_handling: ErrorHandlingConfig,
+
     #[serde(default)]
     pub logging: LoggingConfig,
+
     #[serde(default)]
     pub cache: CacheConfig,
+
     #[serde(default)]
     pub canned_responses: CannedResponseConfig,
+
     #[serde(default)]
     pub request_coalescing: RequestCoalescingConfig,
+
     #[serde(default)]
     pub metrics: MetricsConfig,
+
+    #[serde(default)]
+    pub cors: CorsConfig,
+
     #[serde(default)]
     #[serde(with = "chain_map_serde")]
     pub chains: HashMap<u64, ChainConfig>,
+
     #[serde(default)]
     #[serde(with = "projects_serde")]
     pub projects: HashMap<String, ProjectConfig>,
-    #[serde(default = "default_cors")]
-    pub cors: CorsConfig,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ProjectConfig {
-    pub name: String,
-    pub key: Option<String>,
-}
-
-impl Default for ProjectConfig {
-    fn default() -> Self {
-        Self {
-            name: "default".to_string(),
-            key: None,
-        }
-    }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ServerConfig {
-    #[serde(default = "default_host")]
-    pub host: String,
-    #[serde(default = "default_port")]
-    pub port: u16,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct CorsConfig {
-    #[serde(default = "default_allow_any_origin")]
-    pub allow_any_origin: bool,
-    #[serde(default = "default_allow_any_header")]
-    pub allow_any_header: bool,
-    #[serde(default = "default_allow_any_method")]
-    pub allow_any_method: bool,
-    #[serde(default = "default_expose_any_header")]
-    pub expose_any_header: bool,
-    #[serde(default = "default_allowed_origins")]
-    pub allowed_origins: Vec<String>,
-    #[serde(default = "default_allowed_methods")]
-    pub allowed_methods: Vec<String>,
-    #[serde(default = "default_allowed_headers")]
-    pub allowed_headers: Vec<String>,
-    #[serde(default = "default_max_age")]
-    pub max_age: u32,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(tag = "strategy", rename_all = "snake_case")]
-pub enum LoadBalancingStrategy {
-    PrimaryOnly,
-    RoundRobin,
-    WeightedOrder,
-}
-
-impl Default for LoadBalancingStrategy {
-    fn default() -> Self {
-        LoadBalancingStrategy::PrimaryOnly
-    }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(tag = "type", rename_all = "snake_case")]
-pub enum ErrorHandlingConfig {
-    Retry {
-        #[serde(default = "default_max_retries")]
-        #[serde(deserialize_with = "validate_max_retries")]
-        max_retries: u32,
-        #[serde(
-            default = "default_retry_delay",
-            deserialize_with = "deserialize_duration"
-        )]
-        retry_delay: Duration,
-        #[serde(default = "default_retry_jitter")]
-        jitter: bool,
-    },
-    FailFast,
-    CircuitBreaker {
-        #[serde(default = "default_failure_threshold")]
-        failure_threshold: u32,
-        #[serde(
-            default = "default_reset_timeout",
-            deserialize_with = "deserialize_duration"
-        )]
-        reset_timeout: Duration,
-        #[serde(default = "default_half_open_requests")]
-        half_open_requests: u32,
-    },
-}
-
-impl Default for ErrorHandlingConfig {
-    fn default() -> Self {
-        default_error_handling_config()
-    }
-}
-
-fn validate_max_retries<'de, D>(deserializer: D) -> Result<u32, D::Error>
-where
-    D: serde::Deserializer<'de>,
-{
-    let value = u32::deserialize(deserializer)?;
-    if value == 0 {
-        return Err(serde::de::Error::custom("max_retries cannot be zero"));
-    }
-    Ok(value)
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ChainConfig {
-    #[serde(skip)]
-    pub chain: Chain,
-    #[serde(
-        deserialize_with = "deserialize_nonempty_upstreams",
-        serialize_with = "serialize_nonempty_upstreams"
-    )]
-    pub upstreams: NonEmpty<UpstreamConfig>,
-
-    #[serde(default, deserialize_with = "deserialize_option_duration")]
-    pub block_time: Option<Duration>,
-}
-
-fn deserialize_option_duration<'de, D>(deserializer: D) -> Result<Option<Duration>, D::Error>
-where
-    D: Deserializer<'de>,
-{
-    // This will deserialize the value into an Option<String>
-    // If the value is null, we get None; otherwise, we parse it
-    let opt = Option::<String>::deserialize(deserializer)?;
-    match opt {
-        Some(s) => {
-            let duration = deserialize_duration(serde::de::IntoDeserializer::into_deserializer(s))?;
-            Ok(Some(duration))
-        }
-        None => Ok(None),
-    }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct UpstreamConfig {
-    #[serde(with = "url_serde")]
-    pub url: Url,
-    #[serde(default = "default_timeout", deserialize_with = "validate_timeout")]
-    pub timeout: Duration,
-    #[serde(default = "default_weight")]
-    #[serde(deserialize_with = "validate_weight")]
-    pub weight: u32,
-}
-
-fn validate_timeout<'de, D>(deserializer: D) -> Result<Duration, D::Error>
-where
-    D: serde::Deserializer<'de>,
-{
-    let duration = deserialize_duration(deserializer)?;
-    if duration.is_zero() {
-        return Err(serde::de::Error::custom("timeout cannot be zero"));
-    }
-    Ok(duration)
-}
-
-fn validate_weight<'de, D>(deserializer: D) -> Result<u32, D::Error>
-where
-    D: serde::Deserializer<'de>,
-{
-    let value = u32::deserialize(deserializer)?;
-    if value == 0 {
-        return Err(serde::de::Error::custom("weight cannot be zero"));
-    }
-    Ok(value)
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct LoggingConfig {
-    #[serde(default)]
-    pub console: ConsoleLogConfig,
-    #[serde(default)]
-    pub file: FileLogConfig,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ConsoleLogConfig {
-    #[serde(default = "default_console_enabled")]
-    pub enabled: bool,
-    #[serde(default = "default_rust_log")]
-    pub rust_log: String,
-    #[serde(default = "default_console_format")]
-    pub format: String,
-    #[serde(default = "default_include_target")]
-    pub include_target: bool,
-    #[serde(default = "default_include_thread_ids")]
-    pub include_thread_ids: bool,
-    #[serde(default = "default_include_thread_names")]
-    pub include_thread_names: bool,
-    #[serde(default = "default_include_file")]
-    pub include_file: bool,
-    #[serde(default = "default_include_line_number")]
-    pub include_line_number: bool,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct FileLogConfig {
-    #[serde(default = "default_file_enabled")]
-    pub enabled: bool,
-    #[serde(default = "default_rust_log")]
-    pub rust_log: String,
-    #[serde(default = "default_file_format")]
-    pub format: String,
-    #[serde(default = "default_file_path")]
-    pub path: String,
-    #[serde(default = "default_file_rotation")]
-    pub rotation: String,
-    #[serde(default = "default_include_target")]
-    pub include_target: bool,
-    #[serde(default = "default_include_thread_ids")]
-    pub include_thread_ids: bool,
-    #[serde(default = "default_include_thread_names")]
-    pub include_thread_names: bool,
-    #[serde(default = "default_include_file")]
-    pub include_file: bool,
-    #[serde(default = "default_include_line_number")]
-    pub include_line_number: bool,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(tag = "type", rename_all = "snake_case")]
-pub enum CacheConfig {
-    Disabled,
-    Redis(RedisCacheConfig),
-    Local(LocalCacheConfig),
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct RedisCacheConfig {
-    #[serde(default = "default_redis_url")]
-    pub url: String,
-    pub key_prefix: Option<String>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct LocalCacheConfig {
-    #[serde(default = "default_cache_capacity")]
-    pub capacity: u64,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct UpstreamHealthChecksConfig {
-    #[serde(default = "default_upstream_liveness_enabled")]
-    pub enabled: bool,
-    #[serde(
-        default = "default_upstream_liveness_interval",
-        deserialize_with = "deserialize_duration_with_default"
-    )]
-    pub interval: Duration,
-}
-
-fn deserialize_duration_with_default<'de, D>(deserializer: D) -> Result<Duration, D::Error>
-where
-    D: Deserializer<'de>,
-{
-    let opt = Option::<String>::deserialize(deserializer)?;
-    match opt {
-        Some(s) => deserialize_duration(serde::de::IntoDeserializer::into_deserializer(s)),
-        None => Ok(default_upstream_liveness_interval()),
-    }
-}
-
-fn default_retry_jitter() -> bool {
-    true
-}
-
-fn default_failure_threshold() -> u32 {
-    3
-}
-
-fn default_reset_timeout() -> Duration {
-    Duration::from_secs(30)
-}
-
-fn default_half_open_requests() -> u32 {
-    1
-}
-
-// Existing default functions
-fn default_host() -> String {
-    "127.0.0.1".to_string()
-}
-
-fn default_port() -> u16 {
-    8080
-}
-
-fn default_error_handling_config() -> ErrorHandlingConfig {
-    ErrorHandlingConfig::FailFast
-}
-
-fn default_max_retries() -> u32 {
-    3
-}
-
-fn default_retry_delay() -> Duration {
-    Duration::from_secs(1)
-}
-
-fn default_timeout() -> Duration {
-    Duration::from_secs(10)
-}
-
-fn default_weight() -> u32 {
-    1
 }
 
 fn default_projects() -> HashMap<String, ProjectConfig> {
@@ -352,124 +67,6 @@ fn default_projects() -> HashMap<String, ProjectConfig> {
 
 fn default_chains() -> HashMap<u64, ChainConfig> {
     HashMap::new()
-}
-
-// Default functions for logging configuration
-fn default_console_enabled() -> bool {
-    true
-}
-
-fn default_rust_log() -> String {
-    if cfg!(debug_assertions) {
-        // Development environment - more verbose logging
-        "warn,rpc_gateway_core=debug".to_string()
-    } else {
-        // Production environment - more conservative logging
-        "warn,rpc_gateway_core=info".to_string()
-    }
-}
-
-fn default_console_format() -> String {
-    if cfg!(debug_assertions) {
-        "text".to_string()
-    } else {
-        "json".to_string()
-    }
-}
-
-fn default_file_enabled() -> bool {
-    false
-}
-
-fn default_file_format() -> String {
-    "json".to_string()
-}
-
-fn default_file_path() -> String {
-    "logs/rpc-gateway.log".to_string()
-}
-
-fn default_file_rotation() -> String {
-    "daily".to_string()
-}
-
-fn default_include_target() -> bool {
-    false
-}
-
-fn default_include_thread_ids() -> bool {
-    false
-}
-
-fn default_include_thread_names() -> bool {
-    false
-}
-
-fn default_include_file() -> bool {
-    true
-}
-
-fn default_include_line_number() -> bool {
-    true
-}
-
-fn default_cache_capacity() -> u64 {
-    10_000 // Default cache capacity of 10,000 entries
-}
-
-// Default functions for health checks
-fn default_upstream_liveness_enabled() -> bool {
-    true
-}
-
-fn default_upstream_liveness_interval() -> Duration {
-    Duration::from_secs(300) // 5 minutes
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct CannedResponseConfig {
-    #[serde(default = "default_canned_responses_enabled")]
-    pub enabled: bool,
-    #[serde(default)]
-    pub methods: CannedResponseMethods,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct CannedResponseMethods {
-    #[serde(default = "default_web3_client_version_enabled")]
-    pub web3_client_version: bool,
-    #[serde(default = "default_eth_chain_id_enabled")]
-    pub eth_chain_id: bool,
-}
-
-fn default_canned_responses_enabled() -> bool {
-    true
-}
-
-fn default_web3_client_version_enabled() -> bool {
-    true
-}
-
-fn default_eth_chain_id_enabled() -> bool {
-    true
-}
-
-impl Default for CannedResponseConfig {
-    fn default() -> Self {
-        Self {
-            enabled: default_canned_responses_enabled(),
-            methods: CannedResponseMethods::default(),
-        }
-    }
-}
-
-impl Default for CannedResponseMethods {
-    fn default() -> Self {
-        Self {
-            web3_client_version: default_web3_client_version_enabled(),
-            eth_chain_id: default_eth_chain_id_enabled(),
-        }
-    }
 }
 
 impl Config {
@@ -545,172 +142,8 @@ impl Default for Config {
             metrics: MetricsConfig::default(),
             projects: default_projects(),
             chains: default_chains(),
-            cors: default_cors(),
+            cors: CorsConfig::default(),
         }
-    }
-}
-
-impl Default for ServerConfig {
-    fn default() -> Self {
-        Self {
-            host: default_host(),
-            port: default_port(),
-        }
-    }
-}
-
-impl Default for LoggingConfig {
-    fn default() -> Self {
-        Self {
-            console: ConsoleLogConfig::default(),
-            file: FileLogConfig::default(),
-        }
-    }
-}
-
-impl Default for ConsoleLogConfig {
-    fn default() -> Self {
-        Self {
-            enabled: default_console_enabled(),
-            rust_log: default_rust_log(),
-            format: default_console_format(),
-            include_target: default_include_target(),
-            include_thread_ids: default_include_thread_ids(),
-            include_thread_names: default_include_thread_names(),
-            include_file: default_include_file(),
-            include_line_number: default_include_line_number(),
-        }
-    }
-}
-
-impl Default for FileLogConfig {
-    fn default() -> Self {
-        Self {
-            enabled: default_file_enabled(),
-            rust_log: default_rust_log(),
-            format: default_file_format(),
-            path: default_file_path(),
-            rotation: default_file_rotation(),
-            include_target: default_include_target(),
-            include_thread_ids: default_include_thread_ids(),
-            include_thread_names: default_include_thread_names(),
-            include_file: default_include_file(),
-            include_line_number: default_include_line_number(),
-        }
-    }
-}
-
-// TODO: audit the default values for everything
-impl Default for ChainConfig {
-    fn default() -> Self {
-        Self {
-            chain: Chain::from_id(1),
-            upstreams: NonEmpty::new(UpstreamConfig {
-                url: Url::parse("http://example.com").unwrap(),
-                timeout: Duration::from_secs(10),
-                weight: 1,
-            }),
-            block_time: None,
-        }
-    }
-}
-
-impl Default for CacheConfig {
-    fn default() -> Self {
-        Self::Disabled
-    }
-}
-
-impl Default for UpstreamHealthChecksConfig {
-    fn default() -> Self {
-        Self {
-            enabled: default_upstream_liveness_enabled(),
-            interval: default_upstream_liveness_interval(),
-        }
-    }
-}
-
-impl Default for RedisCacheConfig {
-    fn default() -> Self {
-        Self {
-            url: default_redis_url(),
-            key_prefix: None,
-        }
-    }
-}
-
-impl Default for LocalCacheConfig {
-    fn default() -> Self {
-        Self {
-            capacity: default_cache_capacity(),
-        }
-    }
-}
-
-pub trait UrlProcessor {
-    fn process_url(&self, url_str: &str) -> Result<String, String>;
-}
-
-#[derive(Debug, Clone)]
-pub struct EnvVarUrlProcessor;
-
-impl UrlProcessor for EnvVarUrlProcessor {
-    fn process_url(&self, url_str: &str) -> Result<String, String> {
-        if url_str.starts_with('$') {
-            let var_name = url_str.trim_start_matches('$');
-            std::env::var(var_name)
-                .map_err(|e| format!("Environment variable '{}' not found: {}", var_name, e))
-        } else {
-            Ok(url_str.to_string())
-        }
-    }
-}
-
-#[derive(Debug, Clone)]
-pub struct DefaultUrlProcessor;
-
-impl UrlProcessor for DefaultUrlProcessor {
-    fn process_url(&self, url_str: &str) -> Result<String, String> {
-        EnvVarUrlProcessor.process_url(url_str)
-    }
-}
-
-mod url_serde {
-    use super::*;
-    use serde::{Deserializer, Serializer};
-    use std::str::FromStr;
-
-    pub fn serialize<S>(url: &Url, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        serializer.serialize_str(url.as_str())
-    }
-
-    pub fn deserialize<'de, D>(deserializer: D) -> Result<Url, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        deserialize_with_processor(deserializer, &DefaultUrlProcessor)
-    }
-
-    pub fn deserialize_with_processor<'de, D, P>(
-        deserializer: D,
-        processor: &P,
-    ) -> Result<Url, D::Error>
-    where
-        D: Deserializer<'de>,
-        P: UrlProcessor,
-    {
-        let s = String::deserialize(deserializer)?;
-        let processed_url = processor
-            .process_url(&s)
-            .map_err(serde::de::Error::custom)?;
-        let mut url = Url::from_str(&processed_url).map_err(serde::de::Error::custom)?;
-        if !url.path().ends_with('/') {
-            url.set_path(&format!("{}/", url.path()));
-        }
-        Ok(url)
     }
 }
 
@@ -750,90 +183,42 @@ mod chain_map_serde {
     }
 }
 
-fn deserialize_nonempty_upstreams<'de, D>(
-    deserializer: D,
-) -> Result<NonEmpty<UpstreamConfig>, D::Error>
-where
-    D: Deserializer<'de>,
-{
-    let vec: Vec<UpstreamConfig> = Vec::deserialize(deserializer)?;
-    NonEmpty::from_vec(vec).ok_or_else(|| serde::de::Error::custom("upstreams cannot be empty"))
-}
+mod projects_serde {
+    use super::*;
+    use serde::{Deserializer, Serializer};
+    use std::collections::HashMap;
 
-fn serialize_nonempty_upstreams<S>(
-    upstreams: &NonEmpty<UpstreamConfig>,
-    serializer: S,
-) -> Result<S::Ok, S::Error>
-where
-    S: serde::Serializer,
-{
-    let vec: Vec<_> = upstreams.iter().cloned().collect();
-    vec.serialize(serializer)
-}
+    pub fn deserialize<'de, D>(deserializer: D) -> Result<HashMap<String, ProjectConfig>, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        // First try to deserialize as a list
+        let list: Vec<ProjectConfig> = Vec::deserialize(deserializer)?;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct RequestCoalescingConfig {
-    #[serde(default = "default_request_coalescing_enabled")]
-    pub enabled: bool,
-}
-
-fn default_request_coalescing_enabled() -> bool {
-    true
-}
-
-impl Default for RequestCoalescingConfig {
-    fn default() -> Self {
-        Self {
-            enabled: default_request_coalescing_enabled(),
+        // Convert list to HashMap using name as key
+        let mut map = HashMap::new();
+        for project in list {
+            map.insert(project.name.clone(), project);
         }
-    }
-}
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct MetricsConfig {
-    #[serde(default = "default_metrics_enabled")]
-    pub enabled: bool,
-    #[serde(default = "default_metrics_port")]
-    pub port: u16,
-    #[serde(default = "default_metrics_host")]
-    pub host: String,
-}
-
-impl MetricsConfig {
-    pub fn host_bytes(&self) -> Result<[u8; 4], String> {
-        let parts: Result<Vec<u8>, _> = self
-            .host
-            .split('.')
-            .map(|part| part.parse::<u8>())
-            .collect();
-
-        match parts {
-            Ok(parts) if parts.len() == 4 => Ok([parts[0], parts[1], parts[2], parts[3]]),
-            _ => Err(format!("Invalid IPv4 address format: {}", self.host)),
+        if !map.contains_key("default") {
+            map.insert("default".to_string(), ProjectConfig::default());
         }
+
+        Ok(map)
     }
-}
 
-impl Default for MetricsConfig {
-    fn default() -> Self {
-        Self {
-            enabled: default_metrics_enabled(),
-            port: default_metrics_port(),
-            host: default_metrics_host(),
-        }
+    pub fn serialize<S>(
+        map: &HashMap<String, ProjectConfig>,
+        serializer: S,
+    ) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        // Convert HashMap to Vec for serialization
+        let list: Vec<&ProjectConfig> = map.values().collect();
+        list.serialize(serializer)
     }
-}
-
-fn default_metrics_enabled() -> bool {
-    true
-}
-
-fn default_metrics_port() -> u16 {
-    8082
-}
-
-fn default_metrics_host() -> String {
-    "127.0.0.1".to_string()
 }
 
 #[cfg(test)]
@@ -891,8 +276,9 @@ mod test_helpers {
 
 #[cfg(test)]
 mod tests {
+    use crate::config::test_helpers::{remove_env_var_with_retry, set_env_var_with_retry};
+
     use super::*;
-    use crate::config::test_helpers::*;
     use std::time::Duration;
 
     #[test]
@@ -1954,93 +1340,5 @@ chains:
         let config = Config::default();
         assert_eq!(config.projects.len(), 1);
         assert!(config.projects.contains_key("default"));
-    }
-}
-
-fn default_redis_url() -> String {
-    "redis://localhost:6379".to_string()
-}
-
-fn default_cors() -> CorsConfig {
-    CorsConfig {
-        allow_any_origin: default_allow_any_origin(),
-        allow_any_header: default_allow_any_header(),
-        allow_any_method: default_allow_any_method(),
-        expose_any_header: default_expose_any_header(),
-        allowed_origins: default_allowed_origins(),
-        allowed_methods: default_allowed_methods(),
-        allowed_headers: default_allowed_headers(),
-        max_age: default_max_age(),
-    }
-}
-
-fn default_allow_any_origin() -> bool {
-    true
-}
-
-fn default_allow_any_header() -> bool {
-    true
-}
-
-fn default_allow_any_method() -> bool {
-    true
-}
-
-fn default_expose_any_header() -> bool {
-    true
-}
-
-fn default_allowed_origins() -> Vec<String> {
-    vec![]
-}
-
-fn default_allowed_methods() -> Vec<String> {
-    // TODO: consider adding GET in the future.
-    vec!["POST".to_string(), "OPTIONS".to_string()]
-}
-
-fn default_allowed_headers() -> Vec<String> {
-    vec!["Content-Type".to_string(), "Authorization".to_string()]
-}
-
-fn default_max_age() -> u32 {
-    3600
-}
-
-mod projects_serde {
-    use super::*;
-    use serde::{Deserializer, Serializer};
-    use std::collections::HashMap;
-
-    pub fn deserialize<'de, D>(deserializer: D) -> Result<HashMap<String, ProjectConfig>, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        // First try to deserialize as a list
-        let list: Vec<ProjectConfig> = Vec::deserialize(deserializer)?;
-
-        // Convert list to HashMap using name as key
-        let mut map = HashMap::new();
-        for project in list {
-            map.insert(project.name.clone(), project);
-        }
-
-        if !map.contains_key("default") {
-            map.insert("default".to_string(), ProjectConfig::default());
-        }
-
-        Ok(map)
-    }
-
-    pub fn serialize<S>(
-        map: &HashMap<String, ProjectConfig>,
-        serializer: S,
-    ) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        // Convert HashMap to Vec for serialization
-        let list: Vec<&ProjectConfig> = map.values().collect();
-        list.serialize(serializer)
     }
 }

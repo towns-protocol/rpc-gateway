@@ -2,6 +2,10 @@ server:
   host: "127.0.0.1"
   port: 8080
 
+proxy:
+  forward_headers:
+    - Origin
+
 cors:
   allow_any_origin: true
 

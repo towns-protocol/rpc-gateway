@@ -1,8 +1,10 @@
-use crate::config::ProjectConfig;
-use crate::gateway::{Gateway, GatewayRequest};
-use crate::{config::Config, cors::cors_middleware};
+use crate::{
+    cors::cors_middleware,
+    gateway::{Gateway, GatewayRequest},
+};
 use actix_web::{App, HttpResponse, HttpServer, Result, web};
 use anvil_rpc::{self, error::RpcError, request::Request, response::Response};
+use rpc_gateway_config::{Config, ProjectConfig};
 use std::collections::HashMap;
 use std::sync::Arc;
 use tracing::{debug, info};
