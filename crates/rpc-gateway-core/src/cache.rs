@@ -7,7 +7,6 @@ use moka::future::Cache;
 use redis::{AsyncCommands, FromRedisValue, RedisWrite, ToRedisArgs};
 use rpc_gateway_config::{CacheConfig, ChainConfig};
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
 use std::{
     // hash::{DefaultHasher, Hash, Hasher},
     sync::Arc,
@@ -18,14 +17,15 @@ use tracing::error;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ReqRes {
     pub req: EthRequest,
-    pub res: Value,
+    pub res: serde_json::Value,
 }
 
 impl FromRedisValue for ReqRes {
     fn from_redis_value(v: &redis::Value) -> redis::RedisResult<Self> {
         match v {
             redis::Value::SimpleString(s) => {
-                let reqres: ReqRes = serde_json::from_str(s).map_err(|e| {
+                let mut s = s.clone(); // TODO: is this clone necessary?
+                let reqres: ReqRes = unsafe { simd_json::from_str(&mut s) }.map_err(|e| {
                     redis::RedisError::from((
                         redis::ErrorKind::IoError,
                         "Failed to deserialize Redis value",
@@ -35,7 +35,8 @@ impl FromRedisValue for ReqRes {
                 Ok(reqres)
             }
             redis::Value::BulkString(s) => {
-                let reqres: ReqRes = serde_json::from_slice(s).map_err(|e| {
+                let mut s = s.clone();
+                let reqres: ReqRes = simd_json::from_slice(&mut s).map_err(|e| {
                     redis::RedisError::from((
                         redis::ErrorKind::IoError,
                         "Failed to deserialize Redis value",
@@ -166,7 +167,7 @@ pub fn from_config(
 #[async_trait::async_trait]
 pub trait RpcCache: Send + Sync + std::fmt::Debug {
     async fn get(&self, req: &EthRequest) -> Option<ReqRes>;
-    async fn insert(&self, req: &EthRequest, response: &Value, ttl: Duration);
+    async fn insert(&self, req: &EthRequest, response: &serde_json::Value, ttl: Duration);
     fn get_block_time(&self) -> &Duration;
     fn get_latest_block_number(&self) -> u64;
     fn get_key(&self, req: &EthRequest) -> String;
@@ -403,7 +404,7 @@ impl RpcCache for LocalCache {
         self.cache.get(&key).await.map(|entry| entry.value)
     }
 
-    async fn insert(&self, req: &EthRequest, response: &Value, ttl: Duration) {
+    async fn insert(&self, req: &EthRequest, response: &serde_json::Value, ttl: Duration) {
         let key = self.get_key(req);
         let reqres = ReqRes {
             req: req.clone(),
@@ -482,7 +483,7 @@ impl RpcCache for RedisCache {
         }
     }
 
-    async fn insert(&self, req: &EthRequest, response: &Value, ttl: Duration) {
+    async fn insert(&self, req: &EthRequest, response: &serde_json::Value, ttl: Duration) {
         let key = self.get_key(req);
         let reqres = ReqRes {
             req: req.clone(),

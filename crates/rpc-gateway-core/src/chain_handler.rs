@@ -11,7 +11,6 @@ use metrics::counter;
 use rpc_gateway_config::{
     CannedResponseConfig, ChainConfig, ProjectConfig, RequestCoalescingConfig,
 };
-use serde_json::Value;
 use std::borrow::Cow;
 use std::future::Future;
 use std::pin::Pin;
@@ -216,7 +215,7 @@ impl ChainHandler {
     async fn handle_request_with_coalescing(
         &self,
         req: &EthRequest,
-        raw_call: Value,
+        raw_call: serde_json::Value,
     ) -> ChainHandlerResponse {
         // let mut hasher = DefaultHasher::new();
         // req.hash(&mut hasher);
@@ -285,7 +284,11 @@ impl ChainHandler {
     }
 
     #[instrument(skip(self, req, raw_call))]
-    async fn on_request(&self, req: &EthRequest, raw_call: Value) -> ChainHandlerResponse {
+    async fn on_request(
+        &self,
+        req: &EthRequest,
+        raw_call: serde_json::Value,
+    ) -> ChainHandlerResponse {
         if let Some(response_result) = self.try_canned_response(&req).await {
             // TODO: may want to cache canned responses if they are expensive to generate
             return ChainHandlerResponse {
@@ -364,7 +367,7 @@ async fn cache_then_upstream(
     req: EthRequest,
     request_pool: Arc<ChainRequestPool>,
     cache: Option<Arc<Box<dyn RpcCache>>>,
-    raw_call: Value,
+    raw_call: serde_json::Value,
 ) -> ChainHandlerResponse {
     if let Some(response_result) = try_cache_read(&cache, &req).await {
         return ChainHandlerResponse {

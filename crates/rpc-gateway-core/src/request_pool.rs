@@ -2,7 +2,6 @@ use crate::load_balancer::LoadBalancer;
 use crate::upstream::UpstreamError;
 use anvil_rpc::response::RpcResponse;
 use rpc_gateway_config::ErrorHandlingConfig;
-use serde_json::Value;
 use std::sync::Arc;
 use tracing::{debug, error, instrument, warn};
 
@@ -29,7 +28,10 @@ impl ChainRequestPool {
     }
 
     #[instrument(skip(self))]
-    pub async fn forward_request(&self, raw_call: &Value) -> Result<RpcResponse, RequestPoolError> {
+    pub async fn forward_request(
+        &self,
+        raw_call: &serde_json::Value,
+    ) -> Result<RpcResponse, RequestPoolError> {
         let upstream = match self.load_balancer.select_upstream() {
             Some(upstream) => upstream,
             None => {

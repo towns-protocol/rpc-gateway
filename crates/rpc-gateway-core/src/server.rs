@@ -13,12 +13,13 @@ use tracing_actix_web::TracingLogger;
 async fn handle_rpc_request_inner(
     chain_id: u64,
     query: web::Query<HashMap<String, String>>,
-    body: String,
+    body: web::Bytes,
     gateway: web::Data<Arc<Gateway>>,
     project_config: ProjectConfig,
 ) -> Result<String> {
     let project_key = query.get("key").cloned();
-    let request: Request = serde_json::from_str(&body).map_err(|e| {
+    let mut body_bytes = body.to_vec();
+    let request = simd_json::from_slice::<Request>(&mut body_bytes).map_err(|e| {
         debug!(error = %e, "Failed to parse request body");
         actix_web::error::ErrorBadRequest("Invalid JSON-RPC request")
     })?;
@@ -39,7 +40,7 @@ async fn handle_rpc_request_inner(
 async fn handle_rpc_request_with_project(
     path: web::Path<(String, u64)>,
     query: web::Query<HashMap<String, String>>,
-    body: String,
+    body: web::Bytes,
     gateway: web::Data<Arc<Gateway>>,
 ) -> Result<String> {
     let (project_name, chain_id) = path.into_inner();
@@ -66,7 +67,7 @@ async fn handle_rpc_request_with_project(
 async fn handle_rpc_request_without_project(
     path: web::Path<u64>,
     query: web::Query<HashMap<String, String>>,
-    body: String,
+    body: web::Bytes,
     gateway: web::Data<Arc<Gateway>>,
 ) -> Result<String> {
     let chain_id = path.into_inner();

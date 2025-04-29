@@ -6,7 +6,6 @@ use anvil_rpc::response::{ResponseResult, RpcResponse};
 use rand::Rng;
 use reqwest::Client;
 use rpc_gateway_config::UpstreamConfig;
-use serde_json::{Value, json};
 use tracing::{debug, error, info, instrument, warn};
 
 #[derive(Debug, Clone)]
@@ -25,8 +24,8 @@ pub enum UpstreamError {
 
 use std::sync::LazyLock;
 
-static CHAIN_ID_REQUEST: LazyLock<Value> = LazyLock::new(|| {
-    json!({
+static CHAIN_ID_REQUEST: LazyLock<serde_json::Value> = LazyLock::new(|| {
+    serde_json::json!({
       "jsonrpc": "2.0",
       "method": "eth_chainId",
       "params": [],
@@ -85,7 +84,10 @@ impl Upstream {
 
     // TODO: consider alloy types here.
     #[instrument(skip(self))]
-    pub async fn forward_once(&self, raw_call: &Value) -> Result<RpcResponse, UpstreamError> {
+    pub async fn forward_once(
+        &self,
+        raw_call: &serde_json::Value,
+    ) -> Result<RpcResponse, UpstreamError> {
         // TODO: try parsing the response as an alloy_json_rpc::Response
         // TODO: make sure the upstream errors can be represented as an RpcError.
         // TODO: otherwise, consider just checking if the response is a success or error, and returning it as a Json Value.
@@ -109,7 +111,7 @@ impl Upstream {
     #[instrument(skip(self))]
     pub async fn forward_with_retry(
         &self,
-        raw_call: &Value,
+        raw_call: &serde_json::Value,
         max_retries: u32,
         retry_delay: Duration,
         jitter: bool,
