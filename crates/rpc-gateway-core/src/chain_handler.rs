@@ -7,7 +7,7 @@ use anvil_rpc::response::{ResponseResult, RpcResponse};
 use dashmap::DashMap;
 use futures::FutureExt;
 use futures::future::Shared;
-use metrics::counter;
+use metrics::{counter, histogram};
 use rpc_gateway_config::{
     CannedResponseConfig, ChainConfig, ProjectConfig, RequestCoalescingConfig,
 };
@@ -114,7 +114,7 @@ impl ChainHandler {
         let chain_id = self.chain_config.chain.id().to_string();
         let RpcMethodCall { method, id, .. } = call;
 
-        // let start_time = std::time::Instant::now();
+        let start_time = std::time::Instant::now();
 
         let raw_call = serde_json::json!({
             "id": id,
@@ -175,16 +175,15 @@ impl ChainHandler {
 
         let response_result = chain_handler_response.response_result.clone();
 
-        // Record response time
-        // let duration = start_time.elapsed(); // TODO: is this the best way to measure time?
-        // histogram!("rpc_response_time_seconds",
-        //   "chain_id" => chain_id.clone(),
-        //   "rpc_method" => method.clone(),
-        //   "response_success" => success,
-        //   "response_source" => source.clone(),
-        //   "gateway_project" => project_config.name.clone(),
-        // )
-        // .record(duration.as_secs_f64());
+        let duration = start_time.elapsed();
+        histogram!("rpc_response_time_seconds",
+          "chain_id" => chain_id.clone(),
+          "rpc_method" => method.clone(),
+          "response_success" => success,
+          "response_source" => source.clone(),
+          "gateway_project" => project_config.name.clone(),
+        )
+        .record(duration.as_secs_f64());
 
         RpcResponse::new(id, response_result)
     }
