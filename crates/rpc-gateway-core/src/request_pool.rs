@@ -53,26 +53,23 @@ impl ChainRequestPool {
                 upstream
                     .forward_with_retry(raw_call, *max_retries, *retry_delay, *jitter)
                     .await
-                    .map_err(|err| {
-                        error!(?err, "Error forwarding request");
-                        RequestPoolError::UpstreamError(err)
-                    })
+                    .map_err(|err| RequestPoolError::UpstreamError(err))
             }
             ErrorHandlingConfig::FailFast { .. } => {
                 debug!("Using fail-fast strategy");
-                upstream.forward_once(raw_call).await.map_err(|err| {
-                    error!(?err, "Error forwarding request");
-                    RequestPoolError::UpstreamError(err)
-                })
+                upstream
+                    .forward_once(raw_call)
+                    .await
+                    .map_err(|err| RequestPoolError::UpstreamError(err))
             }
             ErrorHandlingConfig::CircuitBreaker { .. } => {
                 warn!(
                     "Circuit breaker strategy not yet implemented, falling back to single attempt"
                 );
-                upstream.forward_once(raw_call).await.map_err(|err| {
-                    error!(?err, "Error forwarding request");
-                    RequestPoolError::UpstreamError(err)
-                })
+                upstream
+                    .forward_once(raw_call)
+                    .await
+                    .map_err(|err| RequestPoolError::UpstreamError(err))
             }
         }
     }

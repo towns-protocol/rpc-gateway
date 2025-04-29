@@ -16,7 +16,7 @@ async fn main() {
     logging::init_logging(&config);
 
     let gateway = Arc::new(Gateway::new(config.clone()));
-    debug!(
+    info!(
         server = ?config.server,
         metrics = ?config.metrics,
         chains = ?config.chains,

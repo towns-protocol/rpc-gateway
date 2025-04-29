@@ -103,7 +103,6 @@ impl Upstream {
                 warn!(
                   error = ?error_string,
                   status = ?e.status(),
-                  kind="request",
                   is_connect = e.is_connect(),
                   is_decode = e.is_decode(),
                   is_redirect = e.is_redirect(),
@@ -122,7 +121,6 @@ impl Upstream {
             warn!(
               error = ?error_string,
               status = ?e.status(),
-              kind="response",
               is_connect = e.is_connect(),
               is_decode = e.is_decode(),
               is_redirect = e.is_redirect(),
