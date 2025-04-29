@@ -176,7 +176,7 @@ impl ChainHandler {
         let response_result = chain_handler_response.response_result.clone();
 
         let duration = start_time.elapsed();
-        histogram!("rpc_response_time_seconds",
+        histogram!("method_call_latency_seconds",
           "chain_id" => chain_id.clone(),
           "rpc_method" => method.clone(),
           "response_success" => success,
