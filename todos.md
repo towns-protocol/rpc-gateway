@@ -59,3 +59,4 @@
 [ ] Add jwt public key validation
 [ ] Allow the user to configure cors settings per project, chain and upstream.
 [ ] What are some invalid RPC responses that we receive? Which ones should be error-logged and which ones should be just forwarded to
+[ ] Selectively allow response logs. For example, only log eth_call rpc calls along with their parameters.
