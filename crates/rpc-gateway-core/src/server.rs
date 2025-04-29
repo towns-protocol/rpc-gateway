@@ -104,9 +104,21 @@ impl GatewayServer {
     }
 
     pub async fn start(self) -> std::io::Result<()> {
+        let config = self.config.clone();
+
         info!(
-            host = %self.config.server.host,
-            port = %self.config.server.port,
+            server = ?config.server,
+            metrics = ?config.metrics,
+            chains = ?config.chains,
+            cors = ?config.cors,
+            projects = ?config.projects,
+            upstream_health_checks = ?config.upstream_health_checks,
+            error_handling = ?config.error_handling,
+            canned_responses = ?config.canned_responses,
+            cache = ?config.cache,
+            load_balancing = ?config.load_balancing,
+            request_coalescing = ?config.request_coalescing,
+            logging = ?config.logging,
             "Starting server"
         );
 

@@ -16,23 +16,6 @@ async fn main() {
     logging::init_logging(&config);
 
     let gateway = Arc::new(Gateway::new(config.clone()));
-    info!(
-        server = ?config.server,
-        metrics = ?config.metrics,
-        chains = ?config.chains,
-        cors = ?config.cors,
-        projects = ?config.projects,
-        upstream_health_checks = ?config.upstream_health_checks,
-        error_handling = ?config.error_handling,
-        canned_responses = ?config.canned_responses,
-        cache = ?config.cache,
-        server = ?config.server,
-        metrics = ?config.metrics,
-        load_balancing = ?config.load_balancing,
-        request_coalescing = ?config.request_coalescing,
-        logging = ?config.logging,
-        "Starting gateway"
-    );
 
     gateway.run_upstream_health_checks_once().await;
     debug!("Ran upstream health checks");

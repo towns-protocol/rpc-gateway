@@ -38,8 +38,7 @@ cache:
 logging:
   console:
     # enabled: true
-    enabled: false
-    rust_log: "error,rpc_gateway_core::chain_handler=debug"
+    # rust_log: "warn,rpc_gateway_core=info"
     # rust_log: "debug"
     format: "text"
     include_target: true
