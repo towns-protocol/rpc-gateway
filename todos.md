@@ -63,3 +63,11 @@
 [ ] TODO: start logging failed requests.
 [ ] TODO: try getting more helpful error logs from failed requests. For example, try seeing if we can detect alchemy rate limits.
 [ ] Use simd-json for all json parsing.
+[ ] Analyze the loadtest results to see why certain responses take longer to serve.
+
+- Stop saving the request in the cache.
+- Use regular hashing for the cache, instead of serializing the request.
+- Use a more efficient hashing algorithm with better distribution properties
+- Get upstream errors and see the actual error responses.
+- Start serving response success/error counts in metrics.
+- Use simd_json for everythin.
