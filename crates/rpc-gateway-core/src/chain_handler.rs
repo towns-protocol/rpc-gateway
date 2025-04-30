@@ -135,9 +135,13 @@ impl ChainHandler {
         );
 
         let source: Cow<'static, str> = chain_handler_response.response_source.into(); // TODO: is this the right way to do this?
-        let success = match chain_handler_response.response_result {
+        let success = match &chain_handler_response.response_result {
             ResponseResult::Success(_) => "true",
-            ResponseResult::Error(_) => "false",
+            ResponseResult::Error(err) => {
+                // TODO: start a new counter for upstream errors, and label by status code and url
+                warn!(?err, "method returned error");
+                "false"
+            }
         };
 
         counter!("rpc_responses_total",
