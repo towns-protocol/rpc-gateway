@@ -112,22 +112,14 @@ impl ChainHandler {
         project_config: &ProjectConfig,
     ) -> RpcResponse {
         let chain_id = self.chain_config.chain.id().to_string();
-        let RpcMethodCall { method, id, .. } = call;
 
         let start_time = std::time::Instant::now();
 
-        let raw_call = serde_json::json!({
-            "id": id,
-            "jsonrpc": "2.0", // TODO: is this part necessary? maybe we can remove the jsonrpc field?
-            "method": method.clone(),
-            "params": call.params
-        });
-
-        let chain_handler_response = self.on_request(raw_call).await;
+        let chain_handler_response = self.on_request(&call).await;
 
         debug!(
           chain_id = chain_id,
-          rpc_method = ?method,
+          rpc_method = ?call.method,
           response_success = ?chain_handler_response.response_result,
           response_source = ?chain_handler_response.response_source,
           gateway_project = ?project_config.name,
@@ -146,7 +138,7 @@ impl ChainHandler {
 
         counter!("rpc_responses_total",
           "chain_id" => chain_id.clone(),
-          "rpc_method" => method.clone(),
+          "rpc_method" => call.method.clone(),
           "response_success" => success,
           "response_source" => source.clone(),
           "gateway_project" => project_config.name.clone(), // TODO: this should come from the span
@@ -158,14 +150,14 @@ impl ChainHandler {
         let duration = start_time.elapsed();
         histogram!("method_call_latency_seconds",
           "chain_id" => chain_id.clone(),
-          "rpc_method" => method.clone(),
+          "rpc_method" => call.method.clone(),
           "response_success" => success,
           "response_source" => source.clone(),
           "gateway_project" => project_config.name.clone(),
         )
         .record(duration.as_secs_f64());
 
-        RpcResponse::new(id, response_result)
+        RpcResponse::new(call.id, response_result)
     }
 
     async fn try_canned_response(&self, req: &EthRequest) -> Option<ResponseResult> {
@@ -196,7 +188,11 @@ impl ChainHandler {
         raw_call: serde_json::Value,
         req: Result<EthRequest, serde_json::Error>,
     ) -> ChainHandlerResponse {
-        let coalescing_key = serde_json::to_string(&raw_call).unwrap(); // TODO: is this the right way to do this?
+        // TODO: is it safe to unwrap here?
+        let coalescing_key = match &req {
+            Ok(req) => serde_json::to_string(&req).unwrap(),
+            Err(_) => serde_json::to_string(&raw_call).unwrap(),
+        };
 
         let (outer_fut, coalesced) = {
             let request_pool = self.request_pool.clone();
@@ -258,8 +254,12 @@ impl ChainHandler {
         result
     }
 
-    #[instrument(skip(self, raw_call))]
-    async fn on_request(&self, raw_call: serde_json::Value) -> ChainHandlerResponse {
+    async fn on_request(&self, call: &RpcMethodCall) -> ChainHandlerResponse {
+        let raw_call = serde_json::json!({
+            "id": 1,
+            "method": call.method.clone(),
+            "params": call.params
+        });
         let req = serde_json::from_value::<EthRequest>(raw_call.clone());
 
         let canned_response = match &req {
@@ -275,7 +275,7 @@ impl ChainHandler {
             };
         }
 
-        if self.request_coalescing_config.enabled {
+        if self.request_coalescing_config.should_coalesce(&call.method) {
             self.handle_request_with_coalescing(raw_call, req).await
         } else {
             cache_then_upstream(self.request_pool.clone(), self.cache.clone(), raw_call, req).await
