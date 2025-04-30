@@ -1,4 +1,4 @@
-use crate::{cache, load_balancer, request_pool::ChainRequestPool, upstream::Upstream};
+use crate::{load_balancer, request_pool::ChainRequestPool, upstream::Upstream};
 use anvil_rpc::{
     error::RpcError,
     request::Request,
@@ -51,7 +51,7 @@ impl Gateway {
 
         // TODO: make sure this chains hashmap is not empty
         for (chain_id, chain_config) in &config.chains {
-            let cache = cache::from_config(&config.cache, chain_config);
+            let cache = rpc_gateway_cache::cache::from_config(&config.cache, chain_config);
             let upstreams = NonEmpty::from_vec(
                 chain_config
                     .upstreams

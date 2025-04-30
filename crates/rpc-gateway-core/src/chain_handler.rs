@@ -1,4 +1,3 @@
-use crate::cache::RpcCache;
 use crate::request_pool::{ChainRequestPool, RequestPoolError};
 use crate::upstream::UpstreamError;
 use alloy_primitives::hex;
@@ -10,6 +9,7 @@ use dashmap::DashMap;
 use futures::FutureExt;
 use futures::future::Shared;
 use metrics::{Label, counter, gauge, histogram};
+use rpc_gateway_cache::cache::RpcCache;
 use rpc_gateway_config::{
     CannedResponseConfig, ChainConfig, ProjectConfig, RequestCoalescingConfig,
 };
@@ -56,7 +56,7 @@ pub struct ChainHandler {
     pub request_coalescing_config: RequestCoalescingConfig,
     pub canned_responses_config: CannedResponseConfig,
     pub request_pool: Arc<ChainRequestPool>,
-    pub cache: Option<Arc<Box<dyn RpcCache>>>, // TODO: is this the right way to do this?
+    pub cache: Option<Arc<RpcCache>>, // TODO: is this the right way to do this?
     in_flight_requests: Arc<DashMap<String, SharedResponseFuture>>, // TODO: is there a max size here? what's the limit?
 }
 use std::sync::LazyLock;
@@ -72,7 +72,7 @@ impl ChainHandler {
         request_coalescing_config: &RequestCoalescingConfig,
         canned_responses_config: &CannedResponseConfig,
         request_pool: ChainRequestPool,
-        cache: Option<Box<dyn RpcCache>>,
+        cache: Option<RpcCache>,
     ) -> Self {
         Self {
             chain_config: Arc::new(chain_config.clone()),
@@ -393,11 +393,7 @@ impl ChainHandler {
     }
 }
 
-async fn try_cache_write(
-    cache: &Option<Arc<Box<dyn RpcCache>>>,
-    req: &EthRequest,
-    res: &ResponseResult,
-) {
+async fn try_cache_write(cache: &Option<Arc<RpcCache>>, req: &EthRequest, res: &ResponseResult) {
     let cache = match cache {
         Some(cache) => cache,
         None => return,
@@ -419,10 +415,7 @@ async fn try_cache_write(
         .await;
 }
 
-async fn try_cache_read(
-    cache: &Option<Arc<Box<dyn RpcCache>>>,
-    req: &EthRequest,
-) -> Option<ResponseResult> {
+async fn try_cache_read(cache: &Option<Arc<RpcCache>>, req: &EthRequest) -> Option<ResponseResult> {
     let cache = match cache {
         Some(cache) => cache,
         None => return None,
@@ -490,7 +483,7 @@ async fn forward_to_upstream(
 
 async fn cache_then_upstream(
     request_pool: Arc<ChainRequestPool>,
-    cache: Option<Arc<Box<dyn RpcCache>>>,
+    cache: Option<Arc<RpcCache>>,
     raw_call: serde_json::Value,
     req: Result<EthRequest, serde_json::Error>,
 ) -> ChainHandlerResponse {
