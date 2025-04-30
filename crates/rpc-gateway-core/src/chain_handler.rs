@@ -257,9 +257,11 @@ impl ChainHandler {
     async fn on_request(&self, call: &RpcMethodCall) -> ChainHandlerResponse {
         let raw_call = serde_json::json!({
             "id": 1,
+            "jsonrpc": "2.0",
             "method": call.method.clone(),
             "params": call.params
         });
+        // TODO: shouldn't there be an easier way to convert RpcMethodCall to EthRequest?
         let req = serde_json::from_value::<EthRequest>(raw_call.clone());
 
         let canned_response = match &req {
