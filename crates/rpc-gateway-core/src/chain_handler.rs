@@ -338,6 +338,8 @@ impl ChainHandler {
                         Label::new("gateway_project", project_config.name.clone()),
                     ];
 
+                    debug!(?selector, ?from, ?to, "eth call request");
+
                     if let Some(to) = to {
                         labels.push(Label::new("to", to));
                     }
