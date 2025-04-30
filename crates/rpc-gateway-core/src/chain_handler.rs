@@ -219,7 +219,7 @@ impl ChainHandler {
                     let inner_fut_for_removal = inner_fut.clone();
                     let coalescing_key_for_removal = coalescing_key.clone();
 
-                    gauge!("in_flight_requests").increment(1);
+                    gauge!("coalesced_in_flight_requests").increment(1);
 
                     // TODO: consider capping the dashmap size
 
@@ -239,7 +239,7 @@ impl ChainHandler {
 
                         in_flight_requests.remove(&coalescing_key_for_removal);
                         // TODO: consider adding the method to the gauge here.
-                        gauge!("in_flight_requests").decrement(1);
+                        gauge!("coalesced_in_flight_requests").decrement(1);
                     });
 
                     trace!(?coalescing_key, "storing coalesced request future");
