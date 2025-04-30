@@ -344,10 +344,6 @@ impl ChainHandler {
                         labels.push(Label::new("to", to));
                     }
 
-                    if let Some(from) = from {
-                        labels.push(Label::new("from", from));
-                    }
-
                     if let Some(selector) = selector {
                         labels.push(Label::new("selector", selector));
                     }
