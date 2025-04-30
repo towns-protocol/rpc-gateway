@@ -3,7 +3,7 @@ use crate::upstream::UpstreamError;
 use anvil_rpc::response::RpcResponse;
 use rpc_gateway_config::ErrorHandlingConfig;
 use std::sync::Arc;
-use tracing::{debug, error, instrument, warn};
+use tracing::{debug, instrument, warn};
 
 // TODO: maybe request coalescing should be done here?
 
@@ -13,7 +13,7 @@ pub struct ChainRequestPool {
     pub load_balancer: Arc<dyn LoadBalancer>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub enum RequestPoolError {
     NoUpstreamsAvailable,
     UpstreamError(UpstreamError),

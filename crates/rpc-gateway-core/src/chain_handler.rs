@@ -1,5 +1,6 @@
 use crate::cache::RpcCache;
 use crate::request_pool::{ChainRequestPool, RequestPoolError};
+use crate::upstream::UpstreamError;
 use anvil_core::eth::EthRequest;
 use anvil_rpc::error::RpcError;
 use anvil_rpc::request::{RpcCall, RpcMethodCall};
@@ -7,7 +8,7 @@ use anvil_rpc::response::{ResponseResult, RpcResponse};
 use dashmap::DashMap;
 use futures::FutureExt;
 use futures::future::Shared;
-use metrics::{counter, histogram};
+use metrics::{counter, gauge, histogram};
 use rpc_gateway_config::{
     CannedResponseConfig, ChainConfig, ProjectConfig, RequestCoalescingConfig,
 };
@@ -16,7 +17,7 @@ use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::time::Duration;
-use tracing::{debug, error, instrument, trace, warn};
+use tracing::{debug, instrument, trace, warn};
 
 #[derive(Debug, Clone)]
 enum ChainHandlerResponseSource {
@@ -89,13 +90,10 @@ impl ChainHandler {
         project_config: &ProjectConfig,
     ) -> Option<RpcResponse> {
         match call {
-            RpcCall::MethodCall(call) => {
-                trace!(target: "rpc", id = ?call.id , method = ?call.method,  "handling call");
-                Some(self.on_method_call(call, project_config).await)
-            }
+            RpcCall::MethodCall(call) => Some(self.on_method_call(call, project_config).await),
             RpcCall::Notification(notification) => {
                 // TODO: handle notifications
-                trace!(target: "rpc", method = ?notification.method, "received rpc notification");
+                warn!(target: "rpc", method = ?notification.method, "received rpc notification");
                 None
             }
             RpcCall::Invalid { id } => {
@@ -106,6 +104,7 @@ impl ChainHandler {
     }
 
     // TODO: how does anvil convert from RpcMethodCall to EthRequest? Do they also parse-down to json first?
+    #[instrument(name = "on_method_call", fields(method = %call.method, params = ?call.params), skip(self, call, project_config))]
     async fn on_method_call(
         &self,
         call: RpcMethodCall,
@@ -131,7 +130,12 @@ impl ChainHandler {
             ResponseResult::Success(_) => "true",
             ResponseResult::Error(err) => {
                 // TODO: start a new counter for upstream errors, and label by status code and url
-                warn!(?err, "method returned error");
+                warn!(
+                    code = ?err.code,
+                    message = ?err.message,
+                    data = ?err.data,
+                    "method returned error"
+                );
                 "false"
             }
         };
@@ -210,26 +214,32 @@ impl ChainHandler {
                         .boxed()
                         .shared();
 
-                    let timeout = Duration::from_millis(500); // TODO: make this configurable
+                    let timeout_duration = Duration::from_millis(500); // TODO: make this configurable
 
                     let inner_fut_for_removal = inner_fut.clone();
                     let coalescing_key_for_removal = coalescing_key.clone();
 
+                    gauge!("in_flight_requests").increment(1);
+
                     // TODO: consider capping the dashmap size
 
                     tokio::spawn(async move {
-                        // TODO: can just use a tokio::time::timeout here
-                        let did_complete = tokio::select!(
-                            _ = inner_fut_for_removal => true,
-                            _ = tokio::time::sleep(timeout) => false
-                        );
-
+                        let did_complete =
+                            match tokio::time::timeout(timeout_duration, inner_fut_for_removal)
+                                .await
+                            {
+                                Ok(_) => true,
+                                Err(_) => false,
+                            };
                         trace!(
                             ?coalescing_key_for_removal,
                             did_complete = ?did_complete,
                             "removing coalesced request future"
                         );
+
                         in_flight_requests.remove(&coalescing_key_for_removal);
+                        // TODO: consider adding the method to the gauge here.
+                        gauge!("in_flight_requests").decrement(1);
                     });
 
                     trace!(?coalescing_key, "storing coalesced request future");
@@ -340,27 +350,44 @@ async fn forward_to_upstream(
     request_pool: Arc<ChainRequestPool>,
     raw_call: serde_json::Value,
 ) -> ChainHandlerResponse {
-    let response = match request_pool.forward_request(&raw_call).await {
-        Ok(response) => ChainHandlerResponse {
-            response_source: ChainHandlerResponseSource::Upstream,
-            response_result: response.result,
-        },
-        Err(RequestPoolError::NoUpstreamsAvailable) => ChainHandlerResponse {
+    // TODO: come up with proxy specific error codes.
+    // TODO: metrics and logs should distinguish between legal rpc error responses returned from upstreams,
+    // and errors generated by the proxy itself.
+    let error = match request_pool.forward_request(&raw_call).await {
+        Ok(response) => {
+            return ChainHandlerResponse {
+                response_source: ChainHandlerResponseSource::Upstream,
+                response_result: response.result,
+            };
+        }
+        Err(e) => e,
+    };
+
+    let response = match error {
+        RequestPoolError::NoUpstreamsAvailable => ChainHandlerResponse {
             response_source: ChainHandlerResponseSource::PreUpstreamError,
             response_result: ResponseResult::Error(RpcError::internal_error_with(
                 "No upstreams available",
             )),
         },
-        Err(err) => ChainHandlerResponse {
+        RequestPoolError::UpstreamError(UpstreamError::RequestError(_)) => ChainHandlerResponse {
+            response_source: ChainHandlerResponseSource::PreUpstreamError,
+            response_result: ResponseResult::Error(RpcError::internal_error_with(
+                "Could not forward request to upstream",
+            )),
+        },
+        RequestPoolError::UpstreamError(UpstreamError::ResponseError(_)) => ChainHandlerResponse {
             response_source: ChainHandlerResponseSource::Upstream,
-            response_result: ResponseResult::Error(
-                // TODO: is this the right way to handle this?
-                RpcError::internal_error_with(format!("{:?}", err)),
-            ),
+            response_result: ResponseResult::Error(RpcError::internal_error_with(
+                "Upstream response error",
+            )),
         },
     };
 
-    return response;
+    // TODO: add better logging and fields for the error. also add metrics and counters.
+    warn!(?error, "request pool error");
+
+    response
 }
 
 async fn cache_then_upstream(

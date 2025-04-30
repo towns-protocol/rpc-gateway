@@ -8,7 +8,7 @@ use reqwest::Client;
 use rpc_gateway_config::UpstreamConfig;
 use tracing::{debug, error, info, instrument, warn};
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct Upstream {
     pub config: UpstreamConfig,
     pub current_weight: f64,
@@ -16,10 +16,10 @@ pub struct Upstream {
     client: Client,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub enum UpstreamError {
-    RequestError(String),
-    ResponseError(String),
+    RequestError(reqwest::Error),
+    ResponseError(reqwest::Error),
 }
 
 use std::sync::LazyLock;
@@ -98,41 +98,12 @@ impl Upstream {
             .json(&raw_call)
             .send()
             .await
-            .map_err(|e| {
-                let error_string = e.to_string();
-                warn!(
-                  error = ?error_string,
-                  status = ?e.status(),
-                  is_connect = e.is_connect(),
-                  is_decode = e.is_decode(),
-                  is_redirect = e.is_redirect(),
-                  is_request = e.is_request(),
-                  is_status = e.is_status(),
-                  is_timeout = e.is_timeout(),
-                  is_body = e.is_body(),
-                  is_decode = e.is_decode(),
-                  "Upstream error"
-                );
-                UpstreamError::RequestError(error_string)
-            })?;
+            .map_err(|e| UpstreamError::RequestError(e))?;
         // TODO: rebuild your own RpcResponse type. need to be able to access the .result field.
-        let rpc_response = raw_response.json::<RpcResponse>().await.map_err(|e| {
-            let error_string = e.to_string();
-            warn!(
-              error = ?error_string,
-              status = ?e.status(),
-              is_connect = e.is_connect(),
-              is_decode = e.is_decode(),
-              is_redirect = e.is_redirect(),
-              is_request = e.is_request(),
-              is_status = e.is_status(),
-              is_timeout = e.is_timeout(),
-              is_body = e.is_body(),
-              is_decode = e.is_decode(),
-              "Upstream error"
-            );
-            UpstreamError::ResponseError(error_string)
-        })?;
+        let rpc_response = raw_response
+            .json::<RpcResponse>()
+            .await
+            .map_err(|e| UpstreamError::ResponseError(e))?;
         return Ok(rpc_response);
     }
 

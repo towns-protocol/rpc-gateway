@@ -8,7 +8,6 @@ use rpc_gateway_config::{Config, ProjectConfig};
 use std::collections::HashMap;
 use std::sync::Arc;
 use tracing::{info, instrument, warn};
-use tracing_actix_web::TracingLogger;
 
 #[instrument(skip(gateway))]
 async fn handle_rpc_request_inner(
@@ -133,7 +132,6 @@ impl GatewayServer {
             let gateway = self.gateway.clone();
 
             App::new()
-                .wrap(TracingLogger::default())
                 .app_data(web::Data::new(gateway.clone()))
                 .route("/health", web::get().to(liveness_probe))
                 .route("/health/liveness", web::get().to(liveness_probe))
