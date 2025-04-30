@@ -7,7 +7,7 @@ use anvil_rpc::{self, error::RpcError, request::Request, response::Response};
 use rpc_gateway_config::{Config, ProjectConfig};
 use std::collections::HashMap;
 use std::sync::Arc;
-use tracing::{debug, info, instrument};
+use tracing::{debug, info, instrument, warn};
 use tracing_actix_web::TracingLogger;
 
 #[instrument(skip(gateway))]
@@ -22,7 +22,7 @@ async fn handle_rpc_request_inner(
     let mut body_bytes = body.to_vec();
     // TODO: respond with proper rpc error if we can't parse the request body.
     let request = simd_json::from_slice::<Request>(&mut body_bytes).map_err(|e| {
-        debug!(error = %e, "Failed to parse request body");
+        warn!(error = %e, "Failed to parse request body");
         // TODO: how do we know what the request was - if we can't parse it???
         actix_web::error::ErrorBadRequest("Invalid JSON-RPC request")
     })?;
