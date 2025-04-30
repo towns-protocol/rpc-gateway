@@ -1,6 +1,7 @@
 use crate::cache::RpcCache;
 use crate::request_pool::{ChainRequestPool, RequestPoolError};
 use crate::upstream::UpstreamError;
+use alloy_primitives::hex;
 use anvil_core::eth::EthRequest;
 use anvil_rpc::error::RpcError;
 use anvil_rpc::request::{RpcCall, RpcMethodCall};
@@ -8,7 +9,7 @@ use anvil_rpc::response::{ResponseResult, RpcResponse};
 use dashmap::DashMap;
 use futures::FutureExt;
 use futures::future::Shared;
-use metrics::{counter, gauge, histogram};
+use metrics::{Label, counter, gauge, histogram};
 use rpc_gateway_config::{
     CannedResponseConfig, ChainConfig, ProjectConfig, RequestCoalescingConfig,
 };
@@ -311,6 +312,50 @@ impl ChainHandler {
 
         result
     }
+    #[inline]
+    fn track_eth_call_requests(
+        &self,
+        req: &Result<EthRequest, serde_json::Error>,
+        project_config: &ProjectConfig,
+    ) {
+        // TODO: make this configurable. no need to track this metric if the user doesn't want to.
+        // TODO: track whether this response was successful.
+        // TODO: track response_source just like for the other rpc responses.
+        match &req {
+            Ok(req) => {
+                if let EthRequest::EthCall(call, _, _) = req {
+                    let to = call
+                        .inner
+                        .to
+                        .and_then(|to| to.to().copied())
+                        .map(|to| to.to_string());
+                    let input = call.inner.input.clone();
+                    let selector = input.data.and_then(|x| x.get(0..4).map(hex::encode));
+                    let from = call.inner.from.map(|x| x.to_string());
+
+                    let mut labels = vec![
+                        Label::new("chain_id", self.chain_config.chain.id().to_string()),
+                        Label::new("gateway_project", project_config.name.clone()),
+                    ];
+
+                    if let Some(to) = to {
+                        labels.push(Label::new("to", to));
+                    }
+
+                    if let Some(from) = from {
+                        labels.push(Label::new("from", from));
+                    }
+
+                    if let Some(selector) = selector {
+                        labels.push(Label::new("selector", selector));
+                    }
+
+                    counter!("eth_call_requests_total", labels).increment(1);
+                }
+            }
+            Err(_) => {}
+        }
+    }
 
     async fn on_request(
         &self,
@@ -325,6 +370,8 @@ impl ChainHandler {
         });
         // TODO: shouldn't there be an easier way to convert RpcMethodCall to EthRequest?
         let req = serde_json::from_value::<EthRequest>(raw_call.clone());
+
+        self.track_eth_call_requests(&req, project_config);
 
         let canned_response = match &req {
             Ok(req) => self.try_canned_response(req).await,
