@@ -37,7 +37,7 @@ cache:
 
 logging:
   console:
-    # enabled: true
+    enabled: false
     # rust_log: "warn,rpc_gateway_core=info"
     # rust_log: "debug"
     format: "text"

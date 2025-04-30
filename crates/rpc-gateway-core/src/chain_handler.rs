@@ -123,31 +123,7 @@ impl ChainHandler {
             "params": call.params
         });
 
-        let req = match serde_json::from_value::<EthRequest>(raw_call.clone()) {
-            Ok(req) => req,
-            Err(err) => {
-                let err = err.to_string();
-                if err.contains("unknown variant") {
-                    error!(
-                        target: "rpc",
-                        method = ?method,
-                        "Failed to deserialize method due to unknown variant"
-                    );
-                    // TODO: when the method is not found, we could just forward it anyway - just so we cover more exotic chains
-                    return RpcResponse::new(id, RpcError::method_not_found());
-                } else {
-                    error!(
-                        target: "rpc",
-                        method = ?method,
-                        error = ?err,
-                        "Failed to deserialize method"
-                    );
-                    return RpcResponse::new(id, RpcError::invalid_params(err));
-                }
-            }
-        };
-
-        let chain_handler_response = self.on_request(&req, raw_call).await;
+        let chain_handler_response = self.on_request(raw_call).await;
 
         debug!(
           chain_id = chain_id,
@@ -213,14 +189,10 @@ impl ChainHandler {
 
     async fn handle_request_with_coalescing(
         &self,
-        req: &EthRequest,
         raw_call: serde_json::Value,
+        req: Result<EthRequest, serde_json::Error>,
     ) -> ChainHandlerResponse {
-        // let mut hasher = DefaultHasher::new();
-        // req.hash(&mut hasher);
-        // let coalescing_key = hasher.finish().to_string();
-
-        let coalescing_key = serde_json::to_string(&req).unwrap(); // TODO: is this the right way to do this?
+        let coalescing_key = serde_json::to_string(&raw_call).unwrap(); // TODO: is this the right way to do this?
 
         let (outer_fut, coalesced) = {
             let request_pool = self.request_pool.clone();
@@ -234,7 +206,7 @@ impl ChainHandler {
                 }
                 dashmap::Entry::Vacant(e) => {
                     // TODO: consider reusing the cache key here.
-                    let inner_fut = cache_then_upstream(req.clone(), request_pool, cache, raw_call)
+                    let inner_fut = cache_then_upstream(request_pool, cache, raw_call, req)
                         .boxed()
                         .shared();
 
@@ -282,13 +254,16 @@ impl ChainHandler {
         result
     }
 
-    #[instrument(skip(self, req, raw_call))]
-    async fn on_request(
-        &self,
-        req: &EthRequest,
-        raw_call: serde_json::Value,
-    ) -> ChainHandlerResponse {
-        if let Some(response_result) = self.try_canned_response(&req).await {
+    #[instrument(skip(self, raw_call))]
+    async fn on_request(&self, raw_call: serde_json::Value) -> ChainHandlerResponse {
+        let req = serde_json::from_value::<EthRequest>(raw_call.clone());
+
+        let canned_response = match &req {
+            Ok(req) => self.try_canned_response(req).await,
+            Err(_) => None,
+        };
+
+        if let Some(response_result) = canned_response {
             // TODO: may want to cache canned responses if they are expensive to generate
             return ChainHandlerResponse {
                 response_source: ChainHandlerResponseSource::Canned,
@@ -297,16 +272,9 @@ impl ChainHandler {
         }
 
         if self.request_coalescing_config.enabled {
-            self.handle_request_with_coalescing(req, raw_call).await
+            self.handle_request_with_coalescing(raw_call, req).await
         } else {
-            // TODO: try not cloning here
-            cache_then_upstream(
-                req.clone(),
-                self.request_pool.clone(),
-                self.cache.clone(),
-                raw_call,
-            )
-            .await
+            cache_then_upstream(self.request_pool.clone(), self.cache.clone(), raw_call, req).await
         }
     }
 }
@@ -362,19 +330,10 @@ async fn try_cache_read(
     None
 }
 
-async fn cache_then_upstream(
-    req: EthRequest,
+async fn forward_to_upstream(
     request_pool: Arc<ChainRequestPool>,
-    cache: Option<Arc<Box<dyn RpcCache>>>,
     raw_call: serde_json::Value,
 ) -> ChainHandlerResponse {
-    if let Some(response_result) = try_cache_read(&cache, &req).await {
-        return ChainHandlerResponse {
-            response_source: ChainHandlerResponseSource::Cached,
-            response_result,
-        };
-    }
-
     let response = match request_pool.forward_request(&raw_call).await {
         Ok(response) => ChainHandlerResponse {
             response_source: ChainHandlerResponseSource::Upstream,
@@ -394,6 +353,35 @@ async fn cache_then_upstream(
             ),
         },
     };
+
+    return response;
+}
+
+async fn cache_then_upstream(
+    request_pool: Arc<ChainRequestPool>,
+    cache: Option<Arc<Box<dyn RpcCache>>>,
+    raw_call: serde_json::Value,
+    req: Result<EthRequest, serde_json::Error>,
+) -> ChainHandlerResponse {
+    let req = match req {
+        Ok(req) => req,
+        Err(err) => {
+            warn!(
+                ?err,
+                "Failed to parse eth request. Forwarding to upstream without caching."
+            );
+            return forward_to_upstream(request_pool, raw_call).await;
+        }
+    };
+
+    if let Some(response_result) = try_cache_read(&cache, &req).await {
+        return ChainHandlerResponse {
+            response_source: ChainHandlerResponseSource::Cached,
+            response_result,
+        };
+    }
+
+    let response = forward_to_upstream(request_pool, raw_call).await;
 
     if matches!(
         response.response_source,

@@ -65,6 +65,7 @@
 [ ] Use simd-json for all json parsing.
 [ ] Analyze the loadtest results to see why certain responses take longer to serve.
 [ ] Make sure simd compilation is working.
+[ ] See if we still need counter! metrics if we're using histograms.
 
 - Stop saving the request in the cache.
 - Use regular hashing for the cache, instead of serializing the request.
