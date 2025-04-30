@@ -72,6 +72,7 @@
 [ ] TODO: can tokio runtime adapt to k8s adding more cpus to the pod?
 [ ] TODO: the server should always log the goodbye message
 [ ] TODO: why is nothing showing up as coalescing anymore?
+[ ] TODO: analyze which specific eth_call requests are sent, to which contracts, and with what selectors.
 
 - Stop saving the request in the cache.
 - Use regular hashing for the cache, instead of serializing the request.
