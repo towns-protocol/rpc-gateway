@@ -66,6 +66,12 @@
 [ ] Analyze the loadtest results to see why certain responses take longer to serve.
 [ ] Make sure simd compilation is working.
 [ ] See if we still need counter! metrics if we're using histograms.
+[ ] TODO: could we have a memory leak? why does memory usage show sudden jumps without falling back down?
+[ ] TODO: track the concurrent number of requests.
+[ ] TODO: selectively disable request coalescing for certain methods.
+[ ] TODO: can tokio runtime adapt to k8s adding more cpus to the pod?
+[ ] TODO: the server should always log the goodbye message
+[ ] TODO: why is nothing showing up as coalescing anymore?
 
 - Stop saving the request in the cache.
 - Use regular hashing for the cache, instead of serializing the request.
