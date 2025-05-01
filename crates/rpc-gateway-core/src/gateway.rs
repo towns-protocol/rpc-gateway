@@ -46,12 +46,13 @@ pub struct Gateway {
 }
 
 impl Gateway {
-    pub fn new(config: Config) -> Self {
+    // TODO: this should not be async
+    pub async fn new(config: Config) -> Self {
         let mut handlers = HashMap::new();
 
         // TODO: make sure this chains hashmap is not empty
         for (chain_id, chain_config) in &config.chains {
-            let cache = rpc_gateway_cache::cache::from_config(&config.cache, chain_config);
+            let cache = rpc_gateway_cache::cache::from_config(&config.cache, chain_config).await;
             let upstreams = NonEmpty::from_vec(
                 chain_config
                     .upstreams

@@ -1,27 +1,46 @@
-use std::time::Duration;
+use std::{sync::Arc, time::Duration};
 
 use anvil_core::eth::EthRequest;
-use redis::{AsyncCommands, FromRedisValue, RedisWrite, ToRedisArgs};
+use bb8::Pool;
+use bb8_redis::RedisConnectionManager;
+use redis::{AsyncCommands, FromRedisValue, RedisError, RedisWrite, ToRedisArgs};
+use rpc_gateway_config::RedisCacheConfig;
 use tracing::error;
 
 use crate::reqres::ReqRes;
 
 #[derive(Debug)]
 pub struct RedisCache {
-    client: redis::Client,
+    pool: Arc<Pool<RedisConnectionManager>>,
     /// The latest block number for this chain
     chain_id: u64,
     key_prefix: Option<String>,
 }
 
 impl RedisCache {
-    pub fn new(client: redis::Client, chain_id: u64, key_prefix: Option<String>) -> Self {
+    pub fn new(
+        pool: Arc<Pool<RedisConnectionManager>>,
+        chain_id: u64,
+        key_prefix: Option<String>,
+    ) -> Self {
         Self {
-            client,
+            pool,
             chain_id,
             key_prefix,
         }
     }
+
+    pub async fn pool_from_config(
+        config: &RedisCacheConfig,
+    ) -> Result<Pool<RedisConnectionManager>, RedisError> {
+        let manager = RedisConnectionManager::new(config.url.clone())?;
+        let pool = Pool::builder()
+            .max_size(config.pool_size)
+            .build(manager)
+            .await?;
+        Ok(pool)
+    }
+
     fn get_key(&self, req: &EthRequest) -> String {
         // let mut hasher = DefaultHasher::new();
         // self.chain_id.hash(&mut hasher);
@@ -37,7 +56,7 @@ impl RedisCache {
 
     pub async fn get(&self, req: &EthRequest) -> Option<ReqRes> {
         let key = self.get_key(req);
-        let mut con = match self.client.get_multiplexed_async_connection().await {
+        let mut con = match self.pool.get().await {
             Ok(con) => con,
             Err(err) => {
                 error!(error = ?err, "Failed to establish Redis connection");
@@ -45,8 +64,6 @@ impl RedisCache {
             }
         };
 
-        // Get the serialized value from Redis
-        // TODO: optimize. can we store the connection and reuse it?
         let value: Result<Option<ReqRes>, _> = con.get(&key).await;
         match value {
             Ok(reqres) => reqres,
@@ -69,7 +86,7 @@ impl RedisCache {
         };
 
         // TODO: is there a better way to store the conneciton and reuse it?
-        let mut connection = match self.client.get_multiplexed_async_connection().await {
+        let mut connection = match self.pool.get().await {
             Ok(con) => con,
             Err(err) => {
                 error!(

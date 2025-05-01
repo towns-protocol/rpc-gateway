@@ -13,6 +13,8 @@ pub struct RedisCacheConfig {
     #[serde(default = "default_redis_url")]
     pub url: String,
     pub key_prefix: Option<String>,
+    #[serde(default = "default_redis_pool_size")]
+    pub pool_size: u32,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -40,6 +42,7 @@ impl Default for RedisCacheConfig {
         Self {
             url: default_redis_url(),
             key_prefix: None,
+            pool_size: default_redis_pool_size(),
         }
     }
 }
@@ -50,4 +53,8 @@ fn default_cache_capacity() -> u64 {
 
 fn default_redis_url() -> String {
     "redis://localhost:6379".to_string()
+}
+
+fn default_redis_pool_size() -> u32 {
+    32 // Default pool size of 32 connections
 }

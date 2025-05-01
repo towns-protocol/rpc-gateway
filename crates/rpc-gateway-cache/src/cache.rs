@@ -1,14 +1,15 @@
 use anvil_core::eth::EthRequest;
 use rpc_gateway_config::{CacheConfig, ChainConfig};
-use std::{
-    // hash::{DefaultHasher, Hash, Hasher},
-    time::Duration,
-};
+use std::{sync::Arc, time::Duration};
 use tracing::{error, warn};
 
 use crate::{local_cache::LocalCache, redis::RedisCache, reqres::ReqRes, ttl::TTLManager};
 
-pub fn from_config(cache_config: &CacheConfig, chain_config: &ChainConfig) -> Option<RpcCache> {
+// TODO: this should not be async
+pub async fn from_config(
+    cache_config: &CacheConfig,
+    chain_config: &ChainConfig,
+) -> Option<RpcCache> {
     let block_time = match chain_config.block_time {
         Some(block_time) => block_time,
         None => {
@@ -30,17 +31,17 @@ pub fn from_config(cache_config: &CacheConfig, chain_config: &ChainConfig) -> Op
         }
         CacheConfig::Local(config) => RpcCacheInner::Local(LocalCache::new(config.capacity)),
         CacheConfig::Redis(config) => {
-            let url = config.url.clone();
-            let client = match redis::Client::open(url) {
-                Ok(client) => client,
+            let pool = match RedisCache::pool_from_config(config).await {
+                Ok(pool) => pool,
                 Err(err) => {
                     error!(error = ?err, "Failed to connect to Redis cache");
                     return None;
                 }
             };
+            let pool = Arc::new(pool);
 
             RpcCacheInner::Redis(RedisCache::new(
-                client,
+                pool,
                 chain_config.chain.id(),
                 config.key_prefix.clone(),
             ))
