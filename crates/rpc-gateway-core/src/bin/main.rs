@@ -15,7 +15,8 @@ async fn main() {
 
     logging::init_logging(&config);
 
-    let gateway = Arc::new(Gateway::new(config.clone()));
+    let gateway = Gateway::new(config.clone()).await;
+    let gateway = Arc::new(gateway);
 
     gateway.run_upstream_health_checks_once().await;
     debug!("Ran upstream health checks");

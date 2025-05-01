@@ -13,7 +13,7 @@ mod server_config;
 mod upstream_config;
 mod upstream_health_checks_config;
 
-pub use cache_config::CacheConfig;
+pub use cache_config::{CacheConfig, LocalCacheConfig, RedisCacheConfig};
 pub use canned_response_config::CannedResponseConfig;
 pub use chain_config::ChainConfig;
 pub use config::Config;
