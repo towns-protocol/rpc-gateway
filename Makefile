@@ -23,6 +23,19 @@ docker-clean: ## Clean up Docker resources.
 	@echo "Cleaning up Docker resources..."
 	docker rmi $(IMAGE_NAME) || true
 
+.PHONY: docker-publish-amd-only
+docker-publish-amd-only: ## Publish the Docker image to the Docker Hub repository for amd64 architecture only.
+	@echo "Building and pushing amd64 image..."
+	docker build \
+		--platform linux/amd64 \
+		-t $(FULL_IMAGE_NAME):$(DOCKER_IMAGE_VERSION) \
+		-t $(FULL_IMAGE_NAME):latest \
+		.
+	docker push $(FULL_IMAGE_NAME):$(DOCKER_IMAGE_VERSION)
+	docker push $(FULL_IMAGE_NAME):latest
+	@echo "Successfully published $(FULL_IMAGE_NAME):$(DOCKER_IMAGE_VERSION) for amd64"
+	@echo "Successfully published $(FULL_IMAGE_NAME):latest for amd64"
+
 .PHONY: docker-publish
 docker-publish: ## Publish the Docker image to the Docker Hub repository.
 	@echo "Setting up Docker Buildx for multi-platform builds..."
@@ -38,7 +51,6 @@ docker-publish: ## Publish the Docker image to the Docker Hub repository.
 		.
 	@echo "Successfully published $(FULL_IMAGE_NAME):$(DOCKER_IMAGE_VERSION) for multiple platforms"
 	@echo "Successfully published $(FULL_IMAGE_NAME):latest for multiple platforms"
-
 
 .PHONY: helm-build
 helm-build: ## Build the Helm chart.
