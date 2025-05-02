@@ -153,7 +153,7 @@ impl ChainHandler {
             }
         };
 
-        counter!("rpc_responses_total",
+        counter!("method_call_response_total",
           "chain_id" => chain_id.clone(),
           "rpc_method" => call.deserialized.method.clone(),
           "response_success" => success,
@@ -165,7 +165,7 @@ impl ChainHandler {
         let response_result = chain_handler_response.response_result;
 
         let duration = start_time.elapsed();
-        histogram!("method_call_latency_seconds",
+        histogram!("method_call_response_latency_seconds",
           "chain_id" => chain_id.clone(),
           "rpc_method" => call.deserialized.method.clone(),
           "response_success" => success,
@@ -276,48 +276,48 @@ impl ChainHandler {
         result
     }
 
-    #[inline]
-    fn track_eth_call_requests(
-        &self,
-        req: &Result<EthRequest, serde_json::Error>,
-        project_config: &ProjectConfig,
-    ) {
-        // TODO: make this configurable. no need to track this metric if the user doesn't want to.
-        // TODO: track whether this response was successful.
-        // TODO: track response_source just like for the other rpc responses.
-        match &req {
-            Ok(req) => {
-                if let EthRequest::EthCall(call, _, _) = req {
-                    let to = call
-                        .inner
-                        .to
-                        .and_then(|to| to.to().copied())
-                        .map(|to| to.to_string());
-                    let input = call.inner.input.clone();
-                    let selector = input.data.and_then(|x| x.get(0..4).map(hex::encode));
-                    let from = call.inner.from.map(|x| x.to_string());
+    // #[inline]
+    // fn track_eth_call_requests(
+    //     &self,
+    //     req: &Result<EthRequest, serde_json::Error>,
+    //     project_config: &ProjectConfig,
+    // ) {
+    //     // TODO: make this configurable. no need to track this metric if the user doesn't want to.
+    //     // TODO: track whether this response was successful.
+    //     // TODO: track response_source just like for the other rpc responses.
+    //     match &req {
+    //         Ok(req) => {
+    //             if let EthRequest::EthCall(call, _, _) = req {
+    //                 let to = call
+    //                     .inner
+    //                     .to
+    //                     .and_then(|to| to.to().copied())
+    //                     .map(|to| to.to_string());
+    //                 let input = call.inner.input.clone();
+    //                 let selector = input.data.and_then(|x| x.get(0..4).map(hex::encode));
+    //                 let from = call.inner.from.map(|x| x.to_string());
 
-                    let mut labels = vec![
-                        Label::new("chain_id", self.chain_config.chain.id().to_string()),
-                        Label::new("gateway_project", project_config.name.clone()),
-                    ];
+    //                 let mut labels = vec![
+    //                     Label::new("chain_id", self.chain_config.chain.id().to_string()),
+    //                     Label::new("gateway_project", project_config.name.clone()),
+    //                 ];
 
-                    debug!(?selector, ?from, ?to, "eth call request");
+    //                 debug!(?selector, ?from, ?to, "eth call request");
 
-                    if let Some(to) = to {
-                        labels.push(Label::new("to", to));
-                    }
+    //                 if let Some(to) = to {
+    //                     labels.push(Label::new("to", to));
+    //                 }
 
-                    if let Some(selector) = selector {
-                        labels.push(Label::new("selector", selector));
-                    }
+    //                 if let Some(selector) = selector {
+    //                     labels.push(Label::new("selector", selector));
+    //                 }
 
-                    counter!("eth_call_requests_total", labels).increment(1);
-                }
-            }
-            Err(_) => {}
-        }
-    }
+    //                 counter!("eth_call_requests_total", labels).increment(1);
+    //             }
+    //         }
+    //         Err(_) => {}
+    //     }
+    // }
 
     async fn on_request(&self, call: &PreservedMethodCall) -> ChainHandlerResponse {
         // TODO: shouldn't there be an easier way to convert RpcMethodCall to EthRequest?

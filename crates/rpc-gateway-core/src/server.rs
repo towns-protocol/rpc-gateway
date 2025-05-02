@@ -4,11 +4,38 @@ use crate::{
     lazy_request::PreservedRequest,
 };
 use actix_web::{App, HttpResponse, HttpServer, Result, web};
+use metrics::{counter, histogram};
 use rpc_gateway_config::{Config, ProjectConfig};
 use rpc_gateway_rpc::{error::RpcError, response::Response};
-use std::collections::HashMap;
 use std::sync::Arc;
+use std::{collections::HashMap, time::Instant};
 use tracing::{info, instrument, warn};
+
+// TODO: use Result<HttpResponse> instead of unwrap everywhere.
+
+#[inline]
+fn track_http_response(
+    chain_id: u64, // TODO: consider using static strings here.
+    gateway_project: &String,
+    response_category: &'static str,
+    start_time: Instant,
+) {
+    counter!("http_response_total",
+        "chain_id" => chain_id.to_string(),
+        "gateway_project" => gateway_project.clone(),
+        "response_category" => response_category,
+    )
+    .increment(1);
+
+    let duration = start_time.elapsed();
+
+    histogram!("http_response_latency_seconds",
+        "chain_id" => chain_id.to_string(),
+        "gateway_project" => gateway_project.clone(),
+        "response_category" => response_category,
+    )
+    .record(duration.as_secs_f64());
+}
 
 #[instrument(skip(gateway))]
 async fn handle_rpc_request_inner(
@@ -17,31 +44,51 @@ async fn handle_rpc_request_inner(
     body: web::Bytes,
     gateway: web::Data<Arc<Gateway>>,
     project_config: ProjectConfig,
-) -> Result<String> {
+    start_time: Instant,
+) -> HttpResponse {
     let project_key = query.get("key").cloned();
+    let project_name = project_config.name.clone();
     let preserved_request = match PreservedRequest::try_from(body) {
         Ok(preserved_request) => preserved_request,
         Err(_) => {
             warn!("Failed to parse request body");
-            // TODO: this should emit a proxy error metric. should combine to response_source counter.
-            return Ok(serde_json::to_string(&Response::error(
-                RpcError::internal_error_with("Invalid JSON-RPC request"),
-            ))?);
+
+            track_http_response(chain_id, &project_name, "invalid_request", start_time);
+
+            let body = serde_json::to_string(&Response::error(RpcError::internal_error_with(
+                "Invalid JSON-RPC request",
+            )))
+            .unwrap();
+            return HttpResponse::Ok().body(body);
         }
     };
     let gateway_request =
         GatewayRequest::new(project_config, project_key, chain_id, preserved_request);
 
-    let response = gateway
-        .handle_request(gateway_request)
-        .await
-        .unwrap_or(Response::error(RpcError::internal_error_with(
-            "Internal server error",
-        )));
+    // TODO: when the gateway response is None, don't just respond with an error. Respond with 200 and an empty body instead.
 
-    let response_string = serde_json::to_string(&response)?;
+    match gateway.handle_request(gateway_request).await {
+        Some(response) => {
+            let body = serde_json::to_string(&response).unwrap();
 
-    Ok(response_string)
+            // TODO: single_response can actually be an invalid_request response.
+            // this could be coming directly from the upstream,
+            // or literally from RpcCall::Invalid. figure out how to integrate them into the metrics.
+
+            let response_category = match &response {
+                Response::Single(_) => "single_response",
+                Response::Batch(_) => "batch_response",
+            };
+
+            track_http_response(chain_id, &project_name, response_category, start_time);
+
+            HttpResponse::Ok().body(body)
+        }
+        None => {
+            track_http_response(chain_id, &project_name, "notification_ack", start_time);
+            HttpResponse::Ok().body("")
+        }
+    }
 }
 
 async fn handle_rpc_request_with_project(
@@ -49,20 +96,30 @@ async fn handle_rpc_request_with_project(
     query: web::Query<HashMap<String, String>>,
     body: web::Bytes,
     gateway: web::Data<Arc<Gateway>>,
-) -> Result<String> {
+) -> HttpResponse {
+    let start_time = Instant::now();
     let (project_name, chain_id) = path.into_inner();
 
     let project_config = match gateway.config.projects.get(&project_name) {
         Some(project_config) => project_config,
         None => {
-            return Ok(serde_json::to_string(&Response::error(
-                RpcError::internal_error_with("Project not found"),
-            ))?);
+            track_http_response(
+                chain_id,
+                &project_name,
+                "proxy_project_not_found",
+                start_time,
+            );
+
+            let body = serde_json::to_string(&Response::error(RpcError::internal_error_with(
+                "Project not found",
+            )))
+            .unwrap();
+            return HttpResponse::Ok().body(body);
         }
     }
     .clone();
 
-    handle_rpc_request_inner(chain_id, query, body, gateway, project_config).await
+    handle_rpc_request_inner(chain_id, query, body, gateway, project_config, start_time).await
 }
 
 async fn handle_rpc_request_without_project(
@@ -70,11 +127,13 @@ async fn handle_rpc_request_without_project(
     query: web::Query<HashMap<String, String>>,
     body: web::Bytes,
     gateway: web::Data<Arc<Gateway>>,
-) -> Result<String> {
+) -> HttpResponse {
+    // TODO: what's the performance impact of these timers? Should we only optionally run them?
+    let start_time = Instant::now();
     let chain_id = path.into_inner();
     let project_config = gateway.config.projects.get("default").unwrap().clone(); // TODO: make this a function on a ProjectsConfig struct.
 
-    handle_rpc_request_inner(chain_id, query, body, gateway, project_config).await
+    handle_rpc_request_inner(chain_id, query, body, gateway, project_config, start_time).await
 }
 
 async fn liveness_probe() -> Result<String> {
