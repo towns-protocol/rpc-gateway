@@ -369,7 +369,8 @@ impl ChainHandler {
         // TODO: shouldn't there be an easier way to convert RpcMethodCall to EthRequest?
         let req = serde_json::from_value::<EthRequest>(raw_call.clone());
 
-        self.track_eth_call_requests(&req, project_config);
+        // TODO: add this back
+        // self.track_eth_call_requests(&req, project_config);
 
         let canned_response = match &req {
             Ok(req) => self.try_canned_response(req).await,

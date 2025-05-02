@@ -25,10 +25,8 @@ repository = "https://github.com/whats-good/rpc-gateway"
 
 [workspace.dependencies]
 arc-swap = "1.7.0"
-async-trait = "0.1.88"
 clap = { version = "4.5.37", features = ["derive"] }
 duration-str = "0.17.0"
-moka = { version = "0.12.10", features = ["future"] }
 nonempty = "0.11.0"
 rand = "0.9.1"
 futures = "0.3.31"
@@ -41,12 +39,13 @@ tracing = "0.1"
 tracing-appender = { version = "0.2.1" }
 tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
 url = "2.5"
+
 alloy-chains = "0.2.0"
-alloy-primitives = { version = "1.0.0", features = ["serde"] }
-alloy-dyn-abi = "0.8.25"
-alloy-eips = "0.12.6"
-alloy-rpc-types = "0.12.1"
-alloy-serde = "0.12.1"
+alloy-primitives = { version = "1.1.0", features = ["serde"] }
+alloy-eips = "0.15.8"
+alloy-rpc-types = "0.15.8"
+alloy-serde = "0.15.8"
+
 rpc-gateway-config = { path = "crates/rpc-gateway-config" }
 rpc-gateway-cache = { path = "crates/rpc-gateway-cache" }
 rpc-gateway-eth = { path = "crates/rpc-gateway-eth" }
