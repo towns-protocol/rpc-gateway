@@ -114,8 +114,12 @@ impl FromRedisValue for ReqRes {
     fn from_redis_value(v: &redis::Value) -> redis::RedisResult<Self> {
         match v {
             redis::Value::SimpleString(s) => {
-                let mut s = s.clone(); // TODO: is this clone necessary?
-                let reqres: ReqRes = unsafe { simd_json::from_str(&mut s) }.map_err(|e| {
+                let reqres: ReqRes = serde_json::from_str(s).map_err(|e| {
+                    error!(
+                        error = ?e,
+                        value = ?s,
+                        "Failed to deserialize Redis value"
+                    );
                     redis::RedisError::from((
                         redis::ErrorKind::IoError,
                         "Failed to deserialize Redis value",
@@ -126,7 +130,12 @@ impl FromRedisValue for ReqRes {
             }
             redis::Value::BulkString(s) => {
                 let mut s = s.clone();
-                let reqres: ReqRes = simd_json::from_slice(&mut s).map_err(|e| {
+                let reqres: ReqRes = serde_json::from_slice(&mut s).map_err(|e| {
+                    error!(
+                        error = ?e,
+                        value = ?s,
+                        "Failed to deserialize Redis value"
+                    );
                     redis::RedisError::from((
                         redis::ErrorKind::IoError,
                         "Failed to deserialize Redis value",

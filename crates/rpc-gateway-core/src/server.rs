@@ -18,7 +18,6 @@ async fn handle_rpc_request_inner(
     project_config: ProjectConfig,
 ) -> Result<String> {
     let project_key = query.get("key").cloned();
-    // TODO: use simd_json::from_slice::<Request>(&body_bytes)
     let body_bytes = body.to_vec();
     let request = serde_json::from_slice::<Request>(&body_bytes).map_err(|e| {
         warn!(error = %e, "Failed to parse request body");
