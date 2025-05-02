@@ -1,6 +1,8 @@
+use crate::lazy_request::{PreservedMethodCall, PreservedSingleCall};
 use crate::request_pool::{ChainRequestPool, RequestPoolError};
 use crate::upstream::UpstreamError;
 use alloy_primitives::hex;
+use bytes::Bytes;
 use dashmap::DashMap;
 use futures::FutureExt;
 use futures::future::Shared;
@@ -11,7 +13,7 @@ use rpc_gateway_config::{
 };
 use rpc_gateway_eth::eth::EthRequest;
 use rpc_gateway_rpc::error::RpcError;
-use rpc_gateway_rpc::request::{RpcCall, RpcMethodCall};
+use rpc_gateway_rpc::request::RpcCall;
 use rpc_gateway_rpc::response::{ResponseResult, RpcResponse};
 use std::borrow::Cow;
 use std::future::Future;
@@ -87,11 +89,20 @@ impl ChainHandler {
     /// handle a single RPC method call
     pub async fn handle_call(
         &self,
-        call: RpcCall,
+        call: PreservedSingleCall,
         project_config: &ProjectConfig,
     ) -> Option<RpcResponse> {
-        match call {
-            RpcCall::MethodCall(call) => Some(self.on_method_call(call, project_config).await),
+        match call.deserialized {
+            RpcCall::MethodCall(method_call) => Some(
+                self.on_method_call(
+                    PreservedMethodCall {
+                        deserialized: method_call,
+                        raw: call.raw,
+                    },
+                    project_config,
+                )
+                .await,
+            ),
             RpcCall::Notification(notification) => {
                 // TODO: handle notifications
                 warn!(target: "rpc", method = ?notification.method, "received rpc notification");
@@ -105,10 +116,10 @@ impl ChainHandler {
     }
 
     // TODO: how does anvil convert from RpcMethodCall to EthRequest? Do they also parse-down to json first?
-    #[instrument(name = "on_method_call", fields(method = %call.method, params = ?call.params), skip(self, call, project_config))]
+    #[instrument(name = "on_method_call", fields(method = %call.deserialized.method, params = ?call.deserialized.params), skip(self, call, project_config))]
     async fn on_method_call(
         &self,
-        call: RpcMethodCall,
+        call: PreservedMethodCall,
         project_config: &ProjectConfig,
     ) -> RpcResponse {
         let chain_id = self.chain_config.chain.id().to_string();
@@ -116,11 +127,11 @@ impl ChainHandler {
         let start_time = std::time::Instant::now();
 
         // TODO: get the project config from the span
-        let chain_handler_response = self.on_request(&call, project_config).await;
+        let chain_handler_response = self.on_request(&call).await;
 
         debug!(
           chain_id = chain_id,
-          rpc_method = ?call.method,
+          rpc_method = ?call.deserialized.method,
           response_success = ?chain_handler_response.response_result,
           response_source = ?chain_handler_response.response_source,
           gateway_project = ?project_config.name,
@@ -144,26 +155,26 @@ impl ChainHandler {
 
         counter!("rpc_responses_total",
           "chain_id" => chain_id.clone(),
-          "rpc_method" => call.method.clone(),
+          "rpc_method" => call.deserialized.method.clone(),
           "response_success" => success,
           "response_source" => source.clone(),
           "gateway_project" => project_config.name.clone(), // TODO: this should come from the span
         )
         .increment(1);
 
-        let response_result = chain_handler_response.response_result.clone();
+        let response_result = chain_handler_response.response_result;
 
         let duration = start_time.elapsed();
         histogram!("method_call_latency_seconds",
           "chain_id" => chain_id.clone(),
-          "rpc_method" => call.method.clone(),
+          "rpc_method" => call.deserialized.method.clone(),
           "response_success" => success,
           "response_source" => source.clone(),
           "gateway_project" => project_config.name.clone(),
         )
         .record(duration.as_secs_f64());
 
-        RpcResponse::new(call.id, response_result)
+        RpcResponse::new(call.deserialized.id, response_result)
     }
 
     async fn try_canned_response(&self, req: &EthRequest) -> Option<ResponseResult> {
@@ -191,24 +202,22 @@ impl ChainHandler {
 
     async fn handle_request_with_coalescing(
         &self,
-        call: &RpcMethodCall,
-        raw_call: serde_json::Value,
+        call: &PreservedMethodCall,
         req: Result<EthRequest, serde_json::Error>,
-        project_config: &ProjectConfig,
     ) -> ChainHandlerResponse {
         // TODO: is it safe to unwrap here?
         let coalescing_key = match &req {
             Ok(req) => serde_json::to_string(&req).unwrap(),
-            Err(_) => serde_json::to_string(&raw_call).unwrap(),
+            Err(_) => {
+                let method = call.deserialized.method.clone();
+                let params = serde_json::to_string(&call.deserialized.params).unwrap();
+                format!("{}:{}", method, params)
+            }
         };
-
-        let chain_id = self.chain_config.chain.id().to_string();
-        let rpc_method = call.method.clone();
-        let project_name = project_config.name.clone();
 
         let (outer_fut, coalesced) = {
             let request_pool = self.request_pool.clone();
-            let raw_call = raw_call.clone();
+            let raw_call = call.raw.clone();
             let cache = self.cache.clone();
             let in_flight_requests = self.in_flight_requests.clone();
 
@@ -227,6 +236,7 @@ impl ChainHandler {
 
                     // TODO: consider capping the dashmap size
 
+                    // TODO: only timeout, no need to wait for
                     tokio::spawn(async move {
                         let did_complete =
                             match tokio::time::timeout(timeout_duration, inner_fut_for_removal)
@@ -264,6 +274,7 @@ impl ChainHandler {
 
         result
     }
+
     #[inline]
     fn track_eth_call_requests(
         &self,
@@ -307,19 +318,9 @@ impl ChainHandler {
         }
     }
 
-    async fn on_request(
-        &self,
-        call: &RpcMethodCall,
-        project_config: &ProjectConfig,
-    ) -> ChainHandlerResponse {
-        let raw_call = serde_json::json!({
-            "id": 1,
-            "jsonrpc": "2.0",
-            "method": call.method.clone(),
-            "params": call.params
-        });
+    async fn on_request(&self, call: &PreservedMethodCall) -> ChainHandlerResponse {
         // TODO: shouldn't there be an easier way to convert RpcMethodCall to EthRequest?
-        let req = serde_json::from_value::<EthRequest>(raw_call.clone());
+        let req = serde_json::from_slice::<EthRequest>(&call.raw);
 
         // TODO: add this back
         // self.track_eth_call_requests(&req, project_config);
@@ -337,11 +338,19 @@ impl ChainHandler {
             };
         }
 
-        if self.request_coalescing_config.should_coalesce(&call.method) {
-            self.handle_request_with_coalescing(&call, raw_call, req, project_config)
-                .await
+        if self
+            .request_coalescing_config
+            .should_coalesce(&call.deserialized.method)
+        {
+            self.handle_request_with_coalescing(&call, req).await
         } else {
-            cache_then_upstream(self.request_pool.clone(), self.cache.clone(), raw_call, req).await
+            cache_then_upstream(
+                self.request_pool.clone(),
+                self.cache.clone(),
+                call.raw.clone(),
+                req,
+            )
+            .await
         }
     }
 }
@@ -364,7 +373,7 @@ async fn try_cache_write(cache: &Option<Arc<RpcCache>>, req: &EthRequest, res: &
     };
     debug!(?req, "caching response");
     cache
-        .insert(&req, successful_response_result, cache_ttl)
+        .insert(req, successful_response_result, cache_ttl)
         .await;
 }
 
@@ -392,12 +401,12 @@ async fn try_cache_read(cache: &Option<Arc<RpcCache>>, req: &EthRequest) -> Opti
 
 async fn forward_to_upstream(
     request_pool: Arc<ChainRequestPool>,
-    raw_call: serde_json::Value,
+    raw_call: Bytes,
 ) -> ChainHandlerResponse {
     // TODO: come up with proxy specific error codes.
     // TODO: metrics and logs should distinguish between legal rpc error responses returned from upstreams,
     // and errors generated by the proxy itself.
-    let error = match request_pool.forward_request(&raw_call).await {
+    let error = match request_pool.forward_request(raw_call).await {
         Ok(response) => {
             return ChainHandlerResponse {
                 response_source: ChainHandlerResponseSource::Upstream,
@@ -437,7 +446,7 @@ async fn forward_to_upstream(
 async fn cache_then_upstream(
     request_pool: Arc<ChainRequestPool>,
     cache: Option<Arc<RpcCache>>,
-    raw_call: serde_json::Value,
+    raw_call: Bytes,
     req: Result<EthRequest, serde_json::Error>,
 ) -> ChainHandlerResponse {
     let req = match req {

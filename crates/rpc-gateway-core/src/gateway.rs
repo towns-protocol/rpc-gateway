@@ -1,4 +1,7 @@
-use crate::{load_balancer, request_pool::ChainRequestPool, upstream::Upstream};
+use crate::{
+    lazy_request::PreservedRequest, load_balancer, request_pool::ChainRequestPool,
+    upstream::Upstream,
+};
 use futures::{
     FutureExt,
     future::{self, join_all},
@@ -7,7 +10,6 @@ use nonempty::NonEmpty;
 use rpc_gateway_config::{Config, ProjectConfig};
 use rpc_gateway_rpc::{
     error::RpcError,
-    request::Request,
     response::{Response, RpcResponse},
 };
 use std::{collections::HashMap, sync::Arc};
@@ -20,7 +22,7 @@ pub struct GatewayRequest {
     pub project_config: ProjectConfig,
     pub key: Option<String>,
     pub chain_id: u64,
-    pub req: Request,
+    pub req: PreservedRequest,
 }
 
 impl GatewayRequest {
@@ -28,7 +30,7 @@ impl GatewayRequest {
         project_config: ProjectConfig,
         key: Option<String>,
         chain_id: u64,
-        req: Request,
+        req: PreservedRequest,
     ) -> Self {
         Self {
             project_config,
@@ -134,12 +136,20 @@ impl Gateway {
 
         let project_config = &gateway_request.project_config;
 
-        match (gateway_request.req, is_authorized) {
-            (Request::Single(call), true) => chain_handler
+        if !is_authorized {
+            warn!("Unauthorized request");
+            // TODO: emit a metric for unauthorized requests.
+            // TODO: use better error codes for unauthorized requests.
+            let error = Response::error(RpcError::internal_error_with("Unauthorized"));
+            return Some(error);
+        }
+
+        match gateway_request.req {
+            PreservedRequest::Single(call) => chain_handler
                 .handle_call(call, project_config)
                 .await
                 .map(Response::Single),
-            (Request::Batch(calls), true) => {
+            PreservedRequest::Batch(calls) => {
                 future::join_all(
                     calls
                         .into_iter()
@@ -147,11 +157,6 @@ impl Gateway {
                 )
                 .map(responses_as_batch)
                 .await
-            }
-            (_, false) => {
-                warn!("Unauthorized request");
-                let error = Response::error(RpcError::internal_error_with("Unauthorized"));
-                return Some(error);
             }
         }
     }

@@ -84,3 +84,7 @@
 [ ] TODO: track proxy internal errors
 [ ] TODO: add ip tracking
 [ ] TODO: could technically just parse all unused paylaod fields as Bytes since we don't need to know their contents. For example: EthGetBalance(Address, Option<BlockId>). We only care about the BlockId for cache ttl purposes. No need to know the Address. Also no need to pase all those complex TransactionRequest fields.
+
+[ ] TODO: on metrics, counters, logs etc, try using Cow<'static, str> for rpc method names and project names.
+[ ] handle byte optimizations for cache and coalescing keys.
+[ ] handle byte optimizations for cache response parsing + redis

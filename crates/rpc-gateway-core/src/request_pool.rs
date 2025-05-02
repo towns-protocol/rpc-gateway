@@ -1,5 +1,6 @@
 use crate::load_balancer::LoadBalancer;
 use crate::upstream::UpstreamError;
+use bytes::Bytes;
 use rpc_gateway_config::ErrorHandlingConfig;
 use rpc_gateway_rpc::response::RpcResponse;
 use std::sync::Arc;
@@ -28,10 +29,7 @@ impl ChainRequestPool {
     }
 
     #[instrument(skip(self))]
-    pub async fn forward_request(
-        &self,
-        raw_call: &serde_json::Value,
-    ) -> Result<RpcResponse, RequestPoolError> {
+    pub async fn forward_request(&self, raw_call: Bytes) -> Result<RpcResponse, RequestPoolError> {
         let upstream = match self.load_balancer.select_upstream() {
             Some(upstream) => upstream,
             None => {
@@ -58,7 +56,7 @@ impl ChainRequestPool {
             ErrorHandlingConfig::FailFast { .. } => {
                 debug!("Using fail-fast strategy");
                 upstream
-                    .forward_once(raw_call)
+                    .forward_once(&raw_call)
                     .await
                     .map_err(|err| RequestPoolError::UpstreamError(err))
             }
@@ -67,7 +65,7 @@ impl ChainRequestPool {
                     "Circuit breaker strategy not yet implemented, falling back to single attempt"
                 );
                 upstream
-                    .forward_once(raw_call)
+                    .forward_once(&raw_call)
                     .await
                     .map_err(|err| RequestPoolError::UpstreamError(err))
             }

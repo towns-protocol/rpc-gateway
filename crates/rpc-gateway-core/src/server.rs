@@ -1,10 +1,11 @@
 use crate::{
     cors::cors_middleware,
     gateway::{Gateway, GatewayRequest},
+    lazy_request::PreservedRequest,
 };
 use actix_web::{App, HttpResponse, HttpServer, Result, web};
 use rpc_gateway_config::{Config, ProjectConfig};
-use rpc_gateway_rpc::{error::RpcError, request::Request, response::Response};
+use rpc_gateway_rpc::{error::RpcError, response::Response};
 use std::collections::HashMap;
 use std::sync::Arc;
 use tracing::{info, instrument, warn};
@@ -18,15 +19,19 @@ async fn handle_rpc_request_inner(
     project_config: ProjectConfig,
 ) -> Result<String> {
     let project_key = query.get("key").cloned();
-    let body_bytes = body.to_vec();
-    let request = serde_json::from_slice::<Request>(&body_bytes).map_err(|e| {
-        warn!(error = %e, "Failed to parse request body");
-        // TODO: how do we know what the request was - if we can't parse it???
-        // TODO: why do we get empty bytes here?
-        actix_web::error::ErrorBadRequest("Invalid JSON-RPC request")
-    })?;
+    let preserved_request = match PreservedRequest::try_from(body) {
+        Ok(preserved_request) => preserved_request,
+        Err(_) => {
+            warn!("Failed to parse request body");
+            // TODO: this should emit a proxy error metric. should combine to response_source counter.
+            return Ok(serde_json::to_string(&Response::error(
+                RpcError::internal_error_with("Invalid JSON-RPC request"),
+            ))?);
+        }
+    };
+    let gateway_request =
+        GatewayRequest::new(project_config, project_key, chain_id, preserved_request);
 
-    let gateway_request = GatewayRequest::new(project_config, project_key, chain_id, request);
     let response = gateway
         .handle_request(gateway_request)
         .await
@@ -54,16 +59,10 @@ async fn handle_rpc_request_with_project(
                 RpcError::internal_error_with("Project not found"),
             ))?);
         }
-    };
+    }
+    .clone();
 
-    handle_rpc_request_inner(
-        chain_id,
-        query,
-        body,
-        gateway.clone(),        // TODO: do i need to clone here?
-        project_config.clone(), // TODO: do i need to clone here?
-    )
-    .await
+    handle_rpc_request_inner(chain_id, query, body, gateway, project_config).await
 }
 
 async fn handle_rpc_request_without_project(
@@ -73,16 +72,9 @@ async fn handle_rpc_request_without_project(
     gateway: web::Data<Arc<Gateway>>,
 ) -> Result<String> {
     let chain_id = path.into_inner();
-    let project_config = gateway.config.projects.get("default").unwrap(); // TODO: make this a function on a ProjectsConfig struct.
+    let project_config = gateway.config.projects.get("default").unwrap().clone(); // TODO: make this a function on a ProjectsConfig struct.
 
-    handle_rpc_request_inner(
-        chain_id,
-        query,
-        body,
-        gateway.clone(),        // TODO: do i need to clone here?
-        project_config.clone(), // TODO: do i need to clone here?
-    )
-    .await
+    handle_rpc_request_inner(chain_id, query, body, gateway, project_config).await
 }
 
 async fn liveness_probe() -> Result<String> {
