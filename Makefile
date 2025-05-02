@@ -160,10 +160,21 @@ dev: ## Start development server with file watching. Usage: make dev CONFIG=path
 	@mkdir -p logs
 	watchexec -e rs -r cargo run --bin rpc-gateway -- -c $(if $(CONFIG),$(CONFIG),$(PWD)/example.config.yml)
 
+.PHONY: udeps
+udeps: ## Find unused dependencies.
+	@echo "Running udeps..."
+	cargo +nightly udeps --all-targets --all-features --workspace
+
 loadtest:
 	@echo "Running load test..."
 	@mkdir -p loadtest-reports
 	cargo run --bin loadtest -- --host http://localhost:8080 --report-file loadtest-reports/report.html --run-time 15s --hatch-rate 10 --users 20
+
+.PHONY: flatten-rust
+flatten-rust: ## Flatten all Rust source files into a single file for LLM analysis.
+	@echo "Flattening Rust source files..."
+	./scripts/flatten_rust.py
+	@echo "Flattened Rust files saved to flattened_rust.txt"
 
 .PHONY: test
 test: ## Run all tests.
