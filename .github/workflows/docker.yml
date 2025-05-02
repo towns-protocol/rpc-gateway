@@ -24,7 +24,18 @@ jobs:
 
       - name: Run docker-publish
         run: |
-          echo "Building amd64 image..."
-          docker build --platform linux/amd64 -t $(FULL_IMAGE_NAME):$(DOCKER_IMAGE_VERSION) -t $(FULL_IMAGE_NAME):latest .
-          docker push $(FULL_IMAGE_NAME):$(DOCKER_IMAGE_VERSION)
-          docker push $(FULL_IMAGE_NAME):latest
+          # Docker image name
+          IMAGE_NAME=rpc-gateway
+          DOCKER_REGISTRY=whatsgood
+          FULL_IMAGE_NAME=$DOCKER_REGISTRY/$IMAGE_NAME
+          DOCKER_IMAGE_VERSION=$(git rev-parse --short HEAD)
+
+          echo "Building and pushing multi-platform images..."
+          docker buildx build \
+            --platform linux/amd64 \
+            --tag $FULL_IMAGE_NAME:$DOCKER_IMAGE_VERSION \
+            --tag $FULL_IMAGE_NAME:latest \
+            --push \
+            .
+          echo "Successfully published $FULL_IMAGE_NAME:$DOCKER_IMAGE_VERSION for multiple platforms"
+          echo "Successfully published $FULL_IMAGE_NAME:latest for multiple platforms"
