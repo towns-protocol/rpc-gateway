@@ -96,6 +96,7 @@ impl Upstream {
             .client
             .post(self.config.url.as_str())
             .body(raw_call.clone())
+            .header("Content-Type", "application/json")
             .send()
             .await
             .map_err(|e| UpstreamError::RequestError(e))?;

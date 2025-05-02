@@ -178,6 +178,7 @@ impl ChainHandler {
     }
 
     async fn try_canned_response(&self, req: &EthRequest) -> Option<ResponseResult> {
+        // TODO: both for clientVersion and blockNumber, make sure we can respond to actual paramless requests
         if !self.canned_responses_config.enabled {
             return None;
         }
