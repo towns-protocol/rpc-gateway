@@ -73,8 +73,14 @@
 [ ] TODO: the server should always log the goodbye message
 [ ] TODO: why is nothing showing up as coalescing anymore?
 [ ] TODO: analyze which specific eth_call requests are sent, to which contracts, and with what selectors.
-
-- Stop saving the request in the cache.
-- Use regular hashing for the cache, instead of serializing the request.
-- Use a more efficient hashing algorithm with better distribution properties
-- Use simd_json for everything.
+[ ] Stop saving the request in the cache.
+[ ] Use regular hashing for the cache, instead of serializing the request.
+[ ] Use a more efficient hashing algorithm with better distribution properties
+[ ] Use simd_json for everything.
+[ ] TODO: track "Failed to parse request body" count
+[ ] TODO: track response parsing errors
+[ ] TODO: track pre-upstream errors
+[ ] TODO: add "max inflight requests" to request coalescing config
+[ ] TODO: track proxy internal errors
+[ ] TODO: add ip tracking
+[ ] TODO: could technically just parse all unused paylaod fields as Bytes since we don't need to know their contents. For example: EthGetBalance(Address, Option<BlockId>). We only care about the BlockId for cache ttl purposes. No need to know the Address. Also no need to pase all those complex TransactionRequest fields.
