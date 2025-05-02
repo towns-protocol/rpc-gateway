@@ -26,13 +26,13 @@ docker-clean: ## Clean up Docker resources.
 .PHONY: docker-publish-amd-only
 docker-publish-amd-only: ## Publish the Docker image to the Docker Hub repository for amd64 architecture only.
 	@echo "Building and pushing amd64 image..."
-	docker build \
+	@docker build \
 		--platform linux/amd64 \
 		-t $(FULL_IMAGE_NAME):$(DOCKER_IMAGE_VERSION) \
 		-t $(FULL_IMAGE_NAME):latest \
 		.
-	docker push $(FULL_IMAGE_NAME):$(DOCKER_IMAGE_VERSION)
-	docker push $(FULL_IMAGE_NAME):latest
+	@docker push $(FULL_IMAGE_NAME):$(DOCKER_IMAGE_VERSION)
+	@docker push $(FULL_IMAGE_NAME):latest
 	@echo "Successfully published $(FULL_IMAGE_NAME):$(DOCKER_IMAGE_VERSION) for amd64"
 	@echo "Successfully published $(FULL_IMAGE_NAME):latest for amd64"
 
