@@ -1,0 +1,26 @@
+name: Docker
+
+on:
+  push:
+    branches:
+      - main
+      - kerem/rebuild
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: whatsgood
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Run docker-publish
+        run: make docker-publish
