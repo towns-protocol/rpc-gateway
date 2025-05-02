@@ -23,6 +23,8 @@ jobs:
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
       - name: Run docker-publish
-        shell: bash
         run: |
-          make docker-publish-amd-only
+          echo "Building amd64 image..."
+          docker build --platform linux/amd64 -t $(FULL_IMAGE_NAME):$(DOCKER_IMAGE_VERSION) -t $(FULL_IMAGE_NAME):latest .
+          docker push $(FULL_IMAGE_NAME):$(DOCKER_IMAGE_VERSION)
+          docker push $(FULL_IMAGE_NAME):latest
