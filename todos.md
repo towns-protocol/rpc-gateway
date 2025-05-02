@@ -88,3 +88,4 @@
 [ ] TODO: on metrics, counters, logs etc, try using Cow<'static, str> for rpc method names and project names.
 [ ] handle byte optimizations for cache and coalescing keys.
 [ ] handle byte optimizations for cache response parsing + redis
+[ ] TODO: allow eth requests to omit the params field during parsing. Otherwise we get cache misses.
