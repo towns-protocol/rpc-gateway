@@ -89,3 +89,9 @@ chains:
       # - url: "$INFURA_URL"
       #   timeout: "10s"
       #   weight: 2
+
+  84532:
+    upstreams:
+      - url: "$ALCHEMY_BASE_SEPOLIA_URL"
+        timeout: "10s"
+        weight: 1

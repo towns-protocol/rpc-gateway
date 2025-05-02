@@ -10,7 +10,7 @@ pub fn run(config: &MetricsConfig) {
 
     PrometheusBuilder::new()
         .set_buckets_for_metric(
-            Matcher::Full("method_call_latency_seconds".to_owned()),
+            Matcher::Full("method_call_response_latency_seconds".to_owned()),
             &[
                 0.01, // 10ms
                 0.02, // 20ms
