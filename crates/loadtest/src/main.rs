@@ -13,7 +13,8 @@ async fn main() -> Result<(), GooseError> {
                 .register_transaction(transaction!(eth_get_balance).set_name("eth_getBalance"))
                 .register_transaction(
                     transaction!(eth_get_block_by_number).set_name("eth_getBlockByNumber"),
-                ), // .register_transaction(transaction!(unknown_method).set_name("unknown_method")),
+                )
+                .register_transaction(transaction!(eth_call).set_name("eth_call")), // .register_transaction(transaction!(unknown_method).set_name("unknown_method")),
         )
         // .register_scenario(scenario!("random").register_transaction(
         //     transaction!(eth_block_by_number_random).set_name("eth_blockByNumberRandom"),
@@ -74,6 +75,24 @@ async fn eth_get_balance(user: &mut GooseUser) -> TransactionResult {
         "jsonrpc": "2.0",
         "method": "eth_getBalance",
         "params": [address, "latest"],
+        "id": 1
+    });
+
+    let _response = user.post_json(PATH, &request).await?;
+    Ok(())
+}
+
+async fn eth_call(user: &mut GooseUser) -> TransactionResult {
+    let request = serde_json::json!({
+        "jsonrpc": "2.0",
+        "method": "eth_call",
+        "params": [
+          {
+            "to": "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48",
+            "data": "0x70a08231000000000000000000000000d8dA6BF26964aF9D7eEd9e03E53415D37aA96045"
+          },
+          "latest"
+        ],
         "id": 1
     });
 
