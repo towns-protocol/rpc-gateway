@@ -6,6 +6,7 @@ members = [
   "crates/rpc-gateway-core",
   "crates/rpc-gateway-eth",
   "crates/rpc-gateway-rpc",
+  "crates/rpc-gateway-upstream",
 ]
 resolver = "3"
 
@@ -52,6 +53,7 @@ rpc-gateway-config = { path = "crates/rpc-gateway-config" }
 rpc-gateway-cache = { path = "crates/rpc-gateway-cache" }
 rpc-gateway-eth = { path = "crates/rpc-gateway-eth" }
 rpc-gateway-rpc = { path = "crates/rpc-gateway-rpc" }
+rpc-gateway-upstream = { path = "crates/rpc-gateway-upstream" }
 
 [profile.release]
 opt-level = 3

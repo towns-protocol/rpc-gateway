@@ -4,10 +4,9 @@ use arc_swap::ArcSwap;
 use futures::future::join_all;
 use nonempty::NonEmpty;
 use rpc_gateway_config::{LoadBalancingStrategy, UpstreamHealthChecksConfig};
+use rpc_gateway_upstream::upstream::Upstream;
 use tokio::time::sleep;
 use tracing::debug;
-
-use crate::upstream::Upstream;
 
 /// Tracks upstream health and exposes the healthy set.
 #[derive(Debug)]

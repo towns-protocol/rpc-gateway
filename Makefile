@@ -168,7 +168,7 @@ udeps: ## Find unused dependencies.
 loadtest:
 	@echo "Running load test..."
 	@mkdir -p loadtest-reports
-	cargo run --bin loadtest -- --host http://localhost:8080 --report-file loadtest-reports/report.html --run-time 5m --hatch-rate 10 --users 20
+	cargo run --bin loadtest -- --host http://localhost:8080 --report-file loadtest-reports/report.html --run-time 1m --hatch-rate 10 --users 20
 
 .PHONY: flatten-rust
 flatten-rust: ## Flatten all Rust source files into a single file for LLM analysis.

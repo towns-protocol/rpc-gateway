@@ -1,0 +1,28 @@
+[package]
+name = "rpc-gateway-upstream"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+exclude.workspace = true
+homepage.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+
+alloy-chains.workspace = true
+alloy-primitives.workspace = true
+bytes.workspace = true
+rand.workspace = true
+reqwest.workspace = true
+rpc-gateway-config.workspace = true
+rpc-gateway-rpc.workspace = true
+tracing.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+serde_bytes.workspace = true
+tokio.workspace = true
+
+[lints]
+workspace = true

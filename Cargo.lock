@@ -3647,8 +3647,6 @@ version = "0.1.0"
 dependencies = [
  "actix-cors",
  "actix-web",
- "alloy-chains",
- "alloy-primitives",
  "arc-swap",
  "bytes",
  "clap",
@@ -3657,14 +3655,11 @@ dependencies = [
  "metrics",
  "metrics-exporter-prometheus",
  "nonempty",
- "rand 0.9.1",
- "reqwest",
  "rpc-gateway-cache",
  "rpc-gateway-config",
  "rpc-gateway-eth",
  "rpc-gateway-rpc",
- "serde",
- "serde_bytes",
+ "rpc-gateway-upstream",
  "serde_json",
  "tokio",
  "tokio-util",
@@ -3691,6 +3686,24 @@ dependencies = [
  "serde",
  "serde_bytes",
  "serde_json",
+]
+
+[[package]]
+name = "rpc-gateway-upstream"
+version = "0.1.0"
+dependencies = [
+ "alloy-chains",
+ "alloy-primitives",
+ "bytes",
+ "rand 0.9.1",
+ "reqwest",
+ "rpc-gateway-config",
+ "rpc-gateway-rpc",
+ "serde",
+ "serde_bytes",
+ "serde_json",
+ "tokio",
+ "tracing",
 ]
 
 [[package]]

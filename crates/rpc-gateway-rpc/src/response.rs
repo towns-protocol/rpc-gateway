@@ -18,13 +18,21 @@ pub struct RpcResponse {
 
 impl From<RpcError> for RpcResponse {
     fn from(e: RpcError) -> Self {
-        Self { jsonrpc: Version::V2, id: None, result: ResponseResult::Error(e) }
+        Self {
+            jsonrpc: Version::V2,
+            id: None,
+            result: ResponseResult::Error(e),
+        }
     }
 }
 
 impl RpcResponse {
     pub fn new(id: Id, content: impl Into<ResponseResult>) -> Self {
-        Self { jsonrpc: Version::V2, id: Some(id), result: content.into() }
+        Self {
+            jsonrpc: Version::V2,
+            id: Some(id),
+            result: content.into(),
+        }
     }
 
     pub fn invalid_request(id: Id) -> Self {

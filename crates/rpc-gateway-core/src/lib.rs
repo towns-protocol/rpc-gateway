@@ -11,4 +11,3 @@ pub mod logging;
 pub mod metrics;
 pub mod request_pool;
 pub mod server;
-pub mod upstream;

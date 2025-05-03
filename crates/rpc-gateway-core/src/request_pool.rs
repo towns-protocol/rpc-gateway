@@ -1,8 +1,8 @@
 use crate::load_balancer::LoadBalancer;
-use crate::upstream::UpstreamError;
 use bytes::Bytes;
 use rpc_gateway_config::ErrorHandlingConfig;
 use rpc_gateway_rpc::response::RpcResponse;
+use rpc_gateway_upstream::upstream::UpstreamError;
 use std::sync::Arc;
 use tracing::{debug, instrument, warn};
 

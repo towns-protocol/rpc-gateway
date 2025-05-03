@@ -1,6 +1,5 @@
 use crate::lazy_request::{PreservedMethodCall, PreservedSingleCall};
 use crate::request_pool::{ChainRequestPool, RequestPoolError};
-use crate::upstream::UpstreamError;
 use bytes::Bytes;
 use dashmap::DashMap;
 use futures::FutureExt;
@@ -14,6 +13,7 @@ use rpc_gateway_eth::eth::EthRequest;
 use rpc_gateway_rpc::error::RpcError;
 use rpc_gateway_rpc::request::RpcCall;
 use rpc_gateway_rpc::response::{ResponseResult, RpcResponse};
+use rpc_gateway_upstream::upstream::UpstreamError;
 use std::borrow::Cow;
 use std::future::Future;
 use std::pin::Pin;

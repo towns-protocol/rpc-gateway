@@ -1,7 +1,4 @@
-use crate::{
-    lazy_request::PreservedRequest, load_balancer, request_pool::ChainRequestPool,
-    upstream::Upstream,
-};
+use crate::{lazy_request::PreservedRequest, load_balancer, request_pool::ChainRequestPool};
 use futures::{
     FutureExt,
     future::{self, join_all},
@@ -12,6 +9,7 @@ use rpc_gateway_rpc::{
     error::RpcError,
     response::{Response, RpcResponse},
 };
+use rpc_gateway_upstream::upstream::Upstream;
 use std::{collections::HashMap, sync::Arc};
 use tracing::{debug, warn};
 
