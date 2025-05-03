@@ -229,7 +229,7 @@ impl ChainHandler {
                         .boxed()
                         .shared();
 
-                    counter!("debug_in_flight_request_added").increment(1);
+                    counter!("debug_in_flight_request", "action" => "added").increment(1);
                     e.insert(inner_fut.clone());
 
                     (inner_fut, false)
@@ -244,7 +244,7 @@ impl ChainHandler {
             tokio::spawn(async move {
                 outer_fut_clone.await;
                 in_flight_requests_clone.remove(&coalescing_key);
-                counter!("debug_in_flight_request_removed").increment(1);
+                counter!("debug_in_flight_request", "action" => "removed").increment(1);
             });
         }
 
