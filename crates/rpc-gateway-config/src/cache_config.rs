@@ -56,5 +56,6 @@ fn default_redis_url() -> String {
 }
 
 fn default_redis_pool_size() -> u32 {
-    32 // Default pool size of 32 connections
+    // TODO: is this too much?
+    64
 }
