@@ -33,13 +33,13 @@ rpc-gateway-eth.workspace = true
 rpc-gateway-rpc.workspace = true
 serde_json.workspace = true
 serde.workspace = true
+serde_bytes.workspace = true
 tokio.workspace = true
 tokio-util.workspace = true
 tracing-appender.workspace = true
 tracing-subscriber.workspace = true
 tracing.workspace = true
-bytes = "1.10.1"
-
+bytes.workspace = true
 
 [[bin]]
 name = "rpc-gateway"

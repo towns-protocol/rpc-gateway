@@ -25,6 +25,7 @@ repository = "https://github.com/whats-good/rpc-gateway"
 
 [workspace.dependencies]
 arc-swap = "1.7.0"
+bytes = "1.10.1"
 clap = { version = "4.5.37", features = ["derive"] }
 duration-str = "0.17.0"
 nonempty = "0.11.0"
@@ -33,6 +34,7 @@ futures = "0.3.31"
 reqwest = { version = "0.12.15", features = ["json"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
+serde_bytes = "0.11.7"
 tokio = { version = "1.44.2", features = ["full"] }
 tokio-util = { version = "0.7.15", features = ["rt"] }
 tracing = "0.1"
