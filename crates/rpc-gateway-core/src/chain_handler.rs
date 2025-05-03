@@ -1,12 +1,11 @@
 use crate::lazy_request::{PreservedMethodCall, PreservedSingleCall};
 use crate::request_pool::{ChainRequestPool, RequestPoolError};
 use crate::upstream::UpstreamError;
-use alloy_primitives::hex;
 use bytes::Bytes;
 use dashmap::DashMap;
 use futures::FutureExt;
 use futures::future::Shared;
-use metrics::{Label, counter, histogram};
+use metrics::{counter, histogram};
 use rpc_gateway_cache::cache::RpcCache;
 use rpc_gateway_config::{
     CannedResponseConfig, ChainConfig, ProjectConfig, RequestCoalescingConfig,
@@ -21,6 +20,8 @@ use std::pin::Pin;
 use std::sync::Arc;
 use std::time::Duration;
 use tracing::{debug, instrument, trace, warn};
+
+const COALESCING_TIMEOUT: Duration = Duration::from_millis(500); // TODO: make this configurable
 
 #[derive(Debug, Clone)]
 enum ChainHandlerResponseSource {
@@ -115,7 +116,6 @@ impl ChainHandler {
         }
     }
 
-    // TODO: how does anvil convert from RpcMethodCall to EthRequest? Do they also parse-down to json first?
     #[instrument(name = "on_method_call", fields(method = %call.deserialized.method, params = ?call.deserialized.params), skip(self, call, project_config))]
     async fn on_method_call(
         &self,
@@ -206,7 +206,6 @@ impl ChainHandler {
         call: &PreservedMethodCall,
         req: Result<EthRequest, serde_json::Error>,
     ) -> ChainHandlerResponse {
-        // TODO: is it safe to unwrap here?
         let coalescing_key = match &req {
             Ok(req) => serde_json::to_string(&req).unwrap(),
             Err(_) => {
@@ -216,57 +215,42 @@ impl ChainHandler {
             }
         };
 
+        // TODO: consider capping the dashmap size
         let (outer_fut, coalesced) = {
-            let request_pool = self.request_pool.clone();
-            let raw_call = call.raw.clone();
-            let cache = self.cache.clone();
-            let in_flight_requests = self.in_flight_requests.clone();
-
             match self.in_flight_requests.entry(coalescing_key.clone()) {
                 dashmap::Entry::Occupied(e) => (e.get().clone(), true),
                 dashmap::Entry::Vacant(e) => {
-                    // TODO: consider reusing the cache key here.
-                    let inner_fut = cache_then_upstream(request_pool, cache, raw_call, req)
+                    let request_pool = self.request_pool.clone();
+                    let raw_call = call.raw.clone();
+                    let cache = self.cache.clone();
+                    let inner_fut: Shared<
+                        Pin<Box<dyn Future<Output = ChainHandlerResponse> + Send>>,
+                    > = cache_then_upstream(request_pool, cache, raw_call, req)
                         .boxed()
                         .shared();
 
-                    let timeout_duration = Duration::from_millis(500); // TODO: make this configurable
-
-                    let inner_fut_for_removal = inner_fut.clone();
-                    let coalescing_key_for_removal = coalescing_key.clone();
-
-                    // TODO: consider capping the dashmap size
-
-                    // TODO: only timeout, no need to wait for
-                    tokio::spawn(async move {
-                        let did_complete =
-                            match tokio::time::timeout(timeout_duration, inner_fut_for_removal)
-                                .await
-                            {
-                                Ok(_) => true,
-                                Err(_) => false,
-                            };
-                        trace!(
-                            ?coalescing_key_for_removal,
-                            did_complete = ?did_complete,
-                            "removing coalesced request future"
-                        );
-                        in_flight_requests.remove(&coalescing_key_for_removal);
-                    });
-
-                    trace!(?coalescing_key, "storing coalesced request future");
+                    counter!("debug_in_flight_request_added").increment(1);
                     e.insert(inner_fut.clone());
+
                     (inner_fut, false)
                 }
             }
         };
 
-        // Await the future
+        if !coalesced {
+            // TODO: check if there's a race condition that could prevent this spawn from being executed. otherwise we'll have a memory leak.
+            let outer_fut_clone = outer_fut.clone();
+            let in_flight_requests_clone = self.in_flight_requests.clone();
+            tokio::spawn(async move {
+                outer_fut_clone.await;
+                in_flight_requests_clone.remove(&coalescing_key);
+                counter!("debug_in_flight_request_removed").increment(1);
+            });
+        }
+
         let result = outer_fut.await;
 
         if coalesced {
-            debug!(?coalescing_key, "coalescing complete");
-
             return ChainHandlerResponse {
                 response_source: ChainHandlerResponseSource::Coalesced,
                 response_result: result.response_result,

@@ -37,7 +37,7 @@ fn track_http_response(
     .record(duration.as_secs_f64());
 }
 
-#[instrument(skip(gateway))]
+#[instrument(skip(gateway, start_time))]
 async fn handle_rpc_request_inner(
     chain_id: u64,
     query: web::Query<HashMap<String, String>>,
@@ -76,8 +76,8 @@ async fn handle_rpc_request_inner(
             // or literally from RpcCall::Invalid. figure out how to integrate them into the metrics.
 
             let response_category = match &response {
-                Response::Single(_) => "single_response",
-                Response::Batch(_) => "batch_response",
+                Response::Single(_) => "rpc_call_single",
+                Response::Batch(_) => "rpc_call_batch",
             };
 
             track_http_response(chain_id, &project_name, response_category, start_time);
