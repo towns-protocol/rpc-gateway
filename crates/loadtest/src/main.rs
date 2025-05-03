@@ -14,6 +14,10 @@ async fn main() -> Result<(), GooseError> {
                 .register_transaction(
                     transaction!(eth_get_block_by_number).set_name("eth_getBlockByNumber"),
                 )
+                .register_transaction(
+                    transaction!(eth_get_block_by_number_with_transactions)
+                        .set_name("eth_getBlockByNumberWithTransactions"),
+                )
                 .register_transaction(transaction!(eth_call).set_name("eth_call")), // .register_transaction(transaction!(unknown_method).set_name("unknown_method")),
         )
         // .register_scenario(scenario!("random").register_transaction(
@@ -60,6 +64,18 @@ async fn eth_get_block_by_number(user: &mut GooseUser) -> TransactionResult {
         "jsonrpc": "2.0",
         "method": "eth_getBlockByNumber",
         "params": ["latest", false],
+        "id": 1
+    });
+
+    let _response = user.post_json(PATH, &request).await?;
+    Ok(())
+}
+
+async fn eth_get_block_by_number_with_transactions(user: &mut GooseUser) -> TransactionResult {
+    let request = serde_json::json!({
+        "jsonrpc": "2.0",
+        "method": "eth_getBlockByNumber",
+        "params": ["latest", true],
         "id": 1
     });
 
