@@ -42,7 +42,10 @@ impl Upstream {
             current_weight: config.weight as f64,
             config,
             chain,
-            client: Client::new(),
+            client: Client::builder()
+                .timeout(Duration::from_secs(2)) // TODO: make this configurable
+                .build()
+                .unwrap(),
         }
     }
 
