@@ -65,17 +65,17 @@ impl RpcCache {
         self.ttl_manager.get_ttl(req)
     }
 
-    pub async fn get(&self, req: &EthRequest) -> Option<serde_json::Value> {
+    pub async fn get(&self, key: &str) -> Option<serde_json::Value> {
         match &self.inner {
-            RpcCacheInner::Local(local_cache) => local_cache.get(req).await,
-            RpcCacheInner::Redis(redis_cache) => redis_cache.get(req).await,
+            RpcCacheInner::Local(local_cache) => local_cache.get(key).await,
+            RpcCacheInner::Redis(redis_cache) => redis_cache.get(key).await,
         }
     }
 
-    pub async fn insert(&self, req: &EthRequest, response: &serde_json::Value, ttl: Duration) {
+    pub async fn insert(&self, key: String, response: &serde_json::Value, ttl: Duration) {
         match &self.inner {
-            RpcCacheInner::Local(local_cache) => local_cache.insert(req, response, ttl).await,
-            RpcCacheInner::Redis(redis_cache) => redis_cache.insert(req, response, ttl).await,
+            RpcCacheInner::Local(local_cache) => local_cache.insert(key, response, ttl).await,
+            RpcCacheInner::Redis(redis_cache) => redis_cache.insert(key, response, ttl).await,
         }
     }
 }

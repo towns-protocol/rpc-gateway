@@ -19,7 +19,23 @@ use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::time::Duration;
-use tracing::{debug, instrument, warn};
+use tracing::{debug, error, instrument, warn};
+
+struct Cacheability {
+    key: String,
+    ttl: Duration,
+    cache: Arc<RpcCache>,
+}
+
+impl Cacheability {
+    async fn insert(self, res: &serde_json::Value) {
+        self.cache.insert(self.key, res, self.ttl).await;
+    }
+
+    async fn get(&self) -> Option<serde_json::Value> {
+        self.cache.get(&self.key).await
+    }
+}
 
 #[derive(Debug, Clone)]
 enum ChainHandlerResponseSource {
@@ -202,11 +218,11 @@ impl ChainHandler {
     async fn handle_request_with_coalescing(
         &self,
         call: &PreservedMethodCall,
-        req: Result<EthRequest, serde_json::Error>,
+        cacheability: Option<Cacheability>,
     ) -> ChainHandlerResponse {
-        let coalescing_key = match &req {
-            Ok(req) => serde_json::to_string(&req).unwrap(),
-            Err(_) => {
+        let coalescing_key = match &cacheability {
+            Some(cacheability) => cacheability.key.clone(),
+            None => {
                 let method = call.deserialized.method.clone();
                 let params = serde_json::to_string(&call.deserialized.params).unwrap();
                 format!("{}:{}", method, params)
@@ -220,10 +236,9 @@ impl ChainHandler {
                 dashmap::Entry::Vacant(e) => {
                     let request_pool = self.request_pool.clone();
                     let raw_call = call.raw.clone();
-                    let cache = self.cache.clone();
                     let inner_fut: Shared<
                         Pin<Box<dyn Future<Output = ChainHandlerResponse> + Send>>,
-                    > = cache_then_upstream(request_pool, cache, raw_call, req)
+                    > = cache_then_upstream(request_pool, raw_call, cacheability)
                         .boxed()
                         .shared();
 
@@ -258,48 +273,36 @@ impl ChainHandler {
         result
     }
 
-    // #[inline]
-    // fn track_eth_call_requests(
-    //     &self,
-    //     req: &Result<EthRequest, serde_json::Error>,
-    //     project_config: &ProjectConfig,
-    // ) {
-    //     // TODO: make this configurable. no need to track this metric if the user doesn't want to.
-    //     // TODO: track whether this response was successful.
-    //     // TODO: track response_source just like for the other rpc responses.
-    //     match &req {
-    //         Ok(req) => {
-    //             if let EthRequest::EthCall(call, _, _) = req {
-    //                 let to = call
-    //                     .inner
-    //                     .to
-    //                     .and_then(|to| to.to().copied())
-    //                     .map(|to| to.to_string());
-    //                 let input = call.inner.input.clone();
-    //                 let selector = input.data.and_then(|x| x.get(0..4).map(hex::encode));
-    //                 let from = call.inner.from.map(|x| x.to_string());
+    #[inline]
+    fn get_cacheability(
+        &self,
+        req: &Result<EthRequest, serde_json::Error>,
+    ) -> Option<Cacheability> {
+        let cache = match &self.cache {
+            Some(cache) => cache,
+            None => return None,
+        };
 
-    //                 let mut labels = vec![
-    //                     Label::new("chain_id", self.chain_config.chain.id().to_string()),
-    //                     Label::new("gateway_project", project_config.name.clone()),
-    //                 ];
+        let req = match req {
+            Ok(req) => req,
+            Err(err) => {
+                error!(?err, ?req, "failed to parse eth request. not caching.");
+                return None;
+            }
+        };
 
-    //                 debug!(?selector, ?from, ?to, "eth call request");
+        let ttl = cache.get_ttl(&req)?;
+        let key = serde_json::to_string(&req).ok()?;
 
-    //                 if let Some(to) = to {
-    //                     labels.push(Label::new("to", to));
-    //                 }
+        // TODO: missed oppotrunity: if the request is coalescable, but not cacheable, we'd be forcing the
+        // coalescing key compute to use the raw call instead of eth request.
 
-    //                 if let Some(selector) = selector {
-    //                     labels.push(Label::new("selector", selector));
-    //                 }
-
-    //                 counter!("eth_call_requests_total", labels).increment(1);
-    //             }
-    //         }
-    //         Err(_) => {}
-    //     }
-    // }
+        Some(Cacheability {
+            key,
+            ttl,
+            cache: cache.clone(),
+        })
+    }
 
     async fn on_request(&self, call: &PreservedMethodCall) -> ChainHandlerResponse {
         // TODO: shouldn't there be an easier way to convert RpcMethodCall to EthRequest?
@@ -321,65 +324,18 @@ impl ChainHandler {
             };
         }
 
+        let cacheability = self.get_cacheability(&req);
+
         if self
             .request_coalescing_config
             .should_coalesce(&call.deserialized.method)
         {
-            self.handle_request_with_coalescing(&call, req).await
+            self.handle_request_with_coalescing(&call, cacheability)
+                .await
         } else {
-            cache_then_upstream(
-                self.request_pool.clone(),
-                self.cache.clone(),
-                call.raw.clone(),
-                req,
-            )
-            .await
+            cache_then_upstream(self.request_pool.clone(), call.raw.clone(), cacheability).await
         }
     }
-}
-
-async fn try_cache_write(cache: &Option<Arc<RpcCache>>, req: &EthRequest, res: &ResponseResult) {
-    let cache = match cache {
-        Some(cache) => cache,
-        None => return,
-    };
-    let cache_ttl = match cache.get_ttl(&req) {
-        Some(cache_ttl) => cache_ttl,
-        None => return,
-    };
-    let successful_response_result = match res {
-        ResponseResult::Success(res) => res,
-        ResponseResult::Error(_) => {
-            debug!(?req, "method returned error, not caching");
-            return;
-        }
-    };
-    debug!(?req, "caching response");
-    cache
-        .insert(req, successful_response_result, cache_ttl)
-        .await;
-}
-
-async fn try_cache_read(cache: &Option<Arc<RpcCache>>, req: &EthRequest) -> Option<ResponseResult> {
-    let cache = match cache {
-        Some(cache) => cache,
-        None => return None,
-    };
-
-    let cache_ttl = cache.get_ttl(&req);
-
-    if cache_ttl.is_some() {
-        debug!(?req, "method is cacheable");
-        if let Some(response) = cache.get(&req).await {
-            debug!(?req, "cache hit");
-            return Some(ResponseResult::Success(response));
-        } else {
-            debug!(?req, "cache miss");
-        }
-    } else {
-        debug!(?req, "method is not cacheable");
-    }
-    None
 }
 
 async fn forward_to_upstream(
@@ -428,26 +384,16 @@ async fn forward_to_upstream(
 
 async fn cache_then_upstream(
     request_pool: Arc<ChainRequestPool>,
-    cache: Option<Arc<RpcCache>>,
     raw_call: Bytes,
-    req: Result<EthRequest, serde_json::Error>,
+    cacheability: Option<Cacheability>,
 ) -> ChainHandlerResponse {
-    let req = match req {
-        Ok(req) => req,
-        Err(err) => {
-            warn!(
-                ?err,
-                "Failed to parse eth request. Forwarding to upstream without caching."
-            );
-            return forward_to_upstream(request_pool, raw_call).await;
+    if let Some(cacheability) = &cacheability {
+        if let Some(response_result) = cacheability.get().await {
+            return ChainHandlerResponse {
+                response_source: ChainHandlerResponseSource::Cached,
+                response_result: ResponseResult::Success(response_result),
+            };
         }
-    };
-
-    if let Some(response_result) = try_cache_read(&cache, &req).await {
-        return ChainHandlerResponse {
-            response_source: ChainHandlerResponseSource::Cached,
-            response_result,
-        };
     }
 
     let response = forward_to_upstream(request_pool, raw_call).await;
@@ -456,7 +402,11 @@ async fn cache_then_upstream(
         response.response_source,
         ChainHandlerResponseSource::Upstream
     ) {
-        try_cache_write(&cache, &req, &response.response_result).await;
+        if let Some(cacheability) = cacheability {
+            if let ResponseResult::Success(response_result) = &response.response_result {
+                cacheability.insert(response_result).await;
+            }
+        }
     }
 
     response

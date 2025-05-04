@@ -4,7 +4,6 @@ use bb8::Pool;
 use bb8_redis::RedisConnectionManager;
 use redis::{AsyncCommands, RedisError};
 use rpc_gateway_config::RedisCacheConfig;
-use rpc_gateway_eth::eth::EthRequest;
 use tracing::error;
 
 #[derive(Debug)]
@@ -39,21 +38,13 @@ impl RedisCache {
         Ok(pool)
     }
 
-    fn get_key(&self, req: &EthRequest) -> String {
-        // let mut hasher = DefaultHasher::new();
-        // self.chain_id.hash(&mut hasher);
-        // req.hash(&mut hasher);
-        // let key = hasher.finish().to_string();
-        // if let Some(prefix) = &self.key_prefix {
-        //     format!("{}:{}", prefix, key)
-        // } else {
-        //     key
-        // }
-        format!("{}:{}", self.chain_id, serde_json::to_string(&req).unwrap()) // TODO: is this the right way to do this?
+    #[inline]
+    fn key(&self, key: &str) -> String {
+        format!("{}:{}", self.chain_id, key)
     }
 
-    pub async fn get(&self, req: &EthRequest) -> Option<serde_json::Value> {
-        let key = self.get_key(req);
+    pub async fn get(&self, key: &str) -> Option<serde_json::Value> {
+        let key = self.key(key);
         let mut con = match self.pool.get().await {
             Ok(con) => con,
             Err(err) => {
@@ -68,7 +59,7 @@ impl RedisCache {
             Err(e) => {
                 error!(
                     error = ?e,
-                    req = ?req,
+                    key = ?key,
                     "Redis error",
                 );
                 return None;
@@ -84,9 +75,8 @@ impl RedisCache {
         }
     }
 
-    pub async fn insert(&self, req: &EthRequest, response: &serde_json::Value, ttl: Duration) {
-        let key = self.get_key(req);
-
+    pub async fn insert(&self, key: String, response: &serde_json::Value, ttl: Duration) {
+        let key = self.key(&key);
         // TODO: is there a better way to store the conneciton and reuse it?
         let mut connection = match self.pool.get().await {
             Ok(con) => con,

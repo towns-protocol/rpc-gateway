@@ -3464,6 +3464,8 @@ dependencies = [
  "pin-project-lite",
  "rand 0.9.1",
  "ryu",
+ "serde",
+ "serde_json",
  "sha1_smol",
  "socket2",
  "tokio",
@@ -3625,6 +3627,7 @@ dependencies = [
  "redis",
  "rpc-gateway-config",
  "rpc-gateway-eth",
+ "serde_bytes",
  "serde_json",
  "tracing",
 ]

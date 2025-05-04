@@ -1,7 +1,6 @@
 use std::time::{Duration, Instant};
 
 use moka::{Expiry, future::Cache};
-use rpc_gateway_eth::eth::EthRequest;
 
 /// Represents a cache entry
 #[derive(Debug, Clone)]
@@ -63,21 +62,11 @@ impl LocalCache {
 }
 
 impl LocalCache {
-    fn get_key(&self, req: &EthRequest) -> String {
-        // let mut hasher = DefaultHasher::new();
-        // req.hash(&mut hasher);
-        // hasher.finish().to_string()
-        serde_json::to_string(&req).unwrap() // TODO: is this the right way to do this?
-        // TODO: may avoid saving the entire request as the key.
+    pub async fn get(&self, key: &str) -> Option<serde_json::Value> {
+        self.cache.get(key).await.map(|entry| entry.value)
     }
 
-    pub async fn get(&self, req: &EthRequest) -> Option<serde_json::Value> {
-        let key = self.get_key(req);
-        self.cache.get(&key).await.map(|entry| entry.value)
-    }
-
-    pub async fn insert(&self, req: &EthRequest, response: &serde_json::Value, ttl: Duration) {
-        let key = self.get_key(req);
+    pub async fn insert(&self, key: String, response: &serde_json::Value, ttl: Duration) {
         let entry = CacheEntry::new(response.clone(), ttl);
         self.cache.insert(key, entry).await;
     }
