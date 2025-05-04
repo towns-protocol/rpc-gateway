@@ -2,6 +2,7 @@
 FROM rust:1.85-slim-bullseye AS builder
 
 RUN apt-get update && apt-get install -y \
+  libjemalloc-dev \
   build-essential \
   pkg-config \
   libssl-dev \

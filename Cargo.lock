@@ -3648,7 +3648,6 @@ dependencies = [
  "actix-cors",
  "actix-web",
  "arc-swap",
- "bytes",
  "clap",
  "dashmap",
  "futures",

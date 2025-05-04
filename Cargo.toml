@@ -55,8 +55,6 @@ rpc-gateway-eth = { path = "crates/rpc-gateway-eth" }
 rpc-gateway-rpc = { path = "crates/rpc-gateway-rpc" }
 rpc-gateway-upstream = { path = "crates/rpc-gateway-upstream" }
 
-jemallocator = "0.5.4"
-
 [profile.release]
 opt-level = 3
 lto = "fat"
