@@ -4,7 +4,7 @@ on:
   push:
     branches:
       - main
-      - kerem/rebuild
+      - ci/*
 
 jobs:
   build-and-push:
