@@ -8,6 +8,7 @@ RUN apt-get update && apt-get install -y \
   libssl-dev \
   cmake \
   make \
+  g++ \
   curl \
   git \
   clang \
