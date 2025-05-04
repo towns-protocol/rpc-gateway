@@ -25,4 +25,4 @@ jobs:
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
       - name: Run docker-publish
-        run: make docker-publish
+        run: make docker-publish-amd-only

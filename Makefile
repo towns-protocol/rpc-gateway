@@ -20,6 +20,18 @@ docker-clean: ## Clean up Docker resources.
 	@echo "Cleaning up Docker resources..."
 	docker rmi $(IMAGE_NAME) || true
 
+.PHONY: docker-publish-amd-only
+docker-publish-amd-only: ## Publish the Docker image to the Docker Hub repository for amd64 architecture only.
+	@echo "Building and pushing multi-platform images..."
+	docker buildx build \
+		--platform linux/amd64 \
+		--tag $(FULL_IMAGE_NAME):$(DOCKER_IMAGE_VERSION) \
+		--tag $(FULL_IMAGE_NAME):latest \
+		--push \
+		.
+	@echo "Successfully published $(FULL_IMAGE_NAME):$(DOCKER_IMAGE_VERSION) for amd64 architecture"
+	@echo "Successfully published $(FULL_IMAGE_NAME):latest for amd64 architecture"
+
 .PHONY: docker-publish
 docker-publish: ## Publish the Docker image to the Docker Hub repository.
 	@echo "Building and pushing multi-platform images..."
