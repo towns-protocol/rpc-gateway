@@ -1,11 +1,19 @@
 # Build stage
 FROM rust:1.85-slim-bullseye AS builder
 
-# Install build dependencies
 RUN apt-get update && apt-get install -y \
+  build-essential \
   pkg-config \
   libssl-dev \
-  && rm -rf /var/lib/apt/lists/*
+  cmake \
+  make \
+  curl \
+  git \
+  clang \
+  gcc \
+  libc6-dev
+
+RUN rm -rf /var/lib/apt/lists/*
 
 # Set working directory
 WORKDIR /usr/src/rpc-gateway
