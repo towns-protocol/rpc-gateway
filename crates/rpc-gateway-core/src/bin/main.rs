@@ -5,6 +5,13 @@ use std::sync::Arc;
 use tokio_util::{sync::CancellationToken, task::TaskTracker};
 use tracing::{debug, info};
 
+#[cfg(not(target_env = "msvc"))]
+use tikv_jemallocator::Jemalloc;
+
+#[cfg(not(target_env = "msvc"))]
+#[global_allocator]
+static GLOBAL: Jemalloc = Jemalloc;
+
 #[actix_web::main]
 async fn main() {
     let cli = Cli::parse();
