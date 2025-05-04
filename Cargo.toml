@@ -59,6 +59,8 @@ rpc-gateway-upstream = { path = "crates/rpc-gateway-upstream" }
 opt-level = 3
 lto = "fat"
 panic = "abort"
+codegen-units = 1
+strip = "symbols"
 
 [profile.dev]
 debug = true

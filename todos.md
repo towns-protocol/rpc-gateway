@@ -91,3 +91,4 @@
 [ ] TODO: allow eth requests to omit the params field during parsing. Otherwise we get cache misses.
 [ ] Use ahash for cache and coalescing keys.
 [ ] Consider using serde_bytes::ByteBuf for response parsing.
+[ ] Gateway just drops all requests during a new deployment. This should not happen. There should always be at least 1 gateway pod running.

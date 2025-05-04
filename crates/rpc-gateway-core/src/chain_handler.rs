@@ -19,9 +19,7 @@ use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::time::Duration;
-use tracing::{debug, instrument, trace, warn};
-
-const COALESCING_TIMEOUT: Duration = Duration::from_millis(500); // TODO: make this configurable
+use tracing::{debug, instrument, warn};
 
 #[derive(Debug, Clone)]
 enum ChainHandlerResponseSource {
