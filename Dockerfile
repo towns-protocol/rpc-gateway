@@ -36,9 +36,8 @@ RUN apt-get update && apt-get install -y \
   ca-certificates \
   && rm -rf /var/lib/apt/lists/*
 
-# TODO: uncomment
-# # Create non-root user
-# RUN useradd -m -u 1000 rpc-gateway
+# Create non-root user
+RUN useradd -m -u 1000 rpc-gateway
 
 # Set the working directory
 WORKDIR /app
@@ -46,13 +45,11 @@ WORKDIR /app
 # Copy the binary from the builder stage
 COPY --from=builder /usr/src/rpc-gateway/target/release/rpc-gateway /usr/local/bin/rpc-gateway
 
-# TODO: uncomment
-# # Set proper permissions
-# RUN chown -R rpc-gateway:rpc-gateway /app
+# Set proper permissions
+RUN chown -R rpc-gateway:rpc-gateway /app
 
-# TODO: uncomment
-# # Switch to non-root user
-# USER rpc-gateway
+# Switch to non-root user
+USER rpc-gateway
 
 # Expose the port the app runs on
 EXPOSE 8080
