@@ -7,11 +7,11 @@ pub struct RequestCoalescingConfig {
     pub enabled: bool,
 
     #[serde(default)]
-    pub method_filter: RequestCoalescingMethods,
+    pub method_filter: RequestCoalescingMethodFilter,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum RequestCoalescingMethods {
+pub enum RequestCoalescingMethodFilter {
     Whitelist(HashSet<String>),
     Blacklist(HashSet<String>),
     All,
@@ -31,7 +31,7 @@ enum RequestCoalescingMethodsDef {
     All,
 }
 
-impl<'de> Deserialize<'de> for RequestCoalescingMethods {
+impl<'de> Deserialize<'de> for RequestCoalescingMethodFilter {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
         D: serde::Deserializer<'de>,
@@ -39,37 +39,37 @@ impl<'de> Deserialize<'de> for RequestCoalescingMethods {
         let def = RequestCoalescingMethodsDef::deserialize(deserializer)?;
         Ok(match def {
             RequestCoalescingMethodsDef::Whitelist(vec) => {
-                RequestCoalescingMethods::Whitelist(vec.into_iter().collect())
+                RequestCoalescingMethodFilter::Whitelist(vec.into_iter().collect())
             }
             RequestCoalescingMethodsDef::Blacklist(vec) => {
-                RequestCoalescingMethods::Blacklist(vec.into_iter().collect())
+                RequestCoalescingMethodFilter::Blacklist(vec.into_iter().collect())
             }
-            RequestCoalescingMethodsDef::All => RequestCoalescingMethods::All,
+            RequestCoalescingMethodsDef::All => RequestCoalescingMethodFilter::All,
         })
     }
 }
 
-impl Serialize for RequestCoalescingMethods {
+impl Serialize for RequestCoalescingMethodFilter {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: serde::Serializer,
     {
         match self {
-            RequestCoalescingMethods::Whitelist(set) => {
+            RequestCoalescingMethodFilter::Whitelist(set) => {
                 RequestCoalescingMethodsDef::Whitelist(set.iter().cloned().collect())
             }
-            RequestCoalescingMethods::Blacklist(set) => {
+            RequestCoalescingMethodFilter::Blacklist(set) => {
                 RequestCoalescingMethodsDef::Blacklist(set.iter().cloned().collect())
             }
-            RequestCoalescingMethods::All => RequestCoalescingMethodsDef::All,
+            RequestCoalescingMethodFilter::All => RequestCoalescingMethodsDef::All,
         }
         .serialize(serializer)
     }
 }
 
-impl Default for RequestCoalescingMethods {
+impl Default for RequestCoalescingMethodFilter {
     fn default() -> Self {
-        RequestCoalescingMethods::All
+        RequestCoalescingMethodFilter::All
     }
 }
 
@@ -81,9 +81,13 @@ impl RequestCoalescingConfig {
         }
 
         match &self.method_filter {
-            RequestCoalescingMethods::Whitelist(methods) => methods.contains(&method.to_string()),
-            RequestCoalescingMethods::Blacklist(methods) => !methods.contains(&method.to_string()),
-            RequestCoalescingMethods::All => true,
+            RequestCoalescingMethodFilter::Whitelist(methods) => {
+                methods.contains(&method.to_string())
+            }
+            RequestCoalescingMethodFilter::Blacklist(methods) => {
+                !methods.contains(&method.to_string())
+            }
+            RequestCoalescingMethodFilter::All => true,
         }
     }
 }
@@ -92,7 +96,7 @@ impl Default for RequestCoalescingConfig {
     fn default() -> Self {
         Self {
             enabled: default_request_coalescing_enabled(),
-            method_filter: RequestCoalescingMethods::All,
+            method_filter: RequestCoalescingMethodFilter::All,
         }
     }
 }
@@ -115,7 +119,7 @@ method_filter:
         assert_eq!(config.enabled, true);
         assert_eq!(
             config.method_filter,
-            RequestCoalescingMethods::Whitelist(
+            RequestCoalescingMethodFilter::Whitelist(
                 vec!["eth_blockNumber".to_string()].into_iter().collect()
             )
         );
@@ -136,7 +140,7 @@ method_filter:
         assert_eq!(config.enabled, true);
         assert_eq!(
             config.method_filter,
-            RequestCoalescingMethods::Blacklist(
+            RequestCoalescingMethodFilter::Blacklist(
                 vec![
                     "eth_sendRawTransaction".to_string(),
                     "eth_sendTransaction".to_string()
@@ -157,7 +161,7 @@ method_filter:
 
         let config: RequestCoalescingConfig = serde_yaml::from_str(config_str).unwrap();
         assert_eq!(config.enabled, true);
-        assert_eq!(config.method_filter, RequestCoalescingMethods::All);
+        assert_eq!(config.method_filter, RequestCoalescingMethodFilter::All);
     }
 
     #[test]
@@ -168,14 +172,14 @@ enabled: false
 
         let config: RequestCoalescingConfig = serde_yaml::from_str(config_str).unwrap();
         assert_eq!(config.enabled, false);
-        assert_eq!(config.method_filter, RequestCoalescingMethods::All);
+        assert_eq!(config.method_filter, RequestCoalescingMethodFilter::All);
     }
 
     #[test]
     fn test_should_coalesce_whitelist() {
         let config = RequestCoalescingConfig {
             enabled: true,
-            method_filter: RequestCoalescingMethods::Whitelist(
+            method_filter: RequestCoalescingMethodFilter::Whitelist(
                 vec!["eth_blockNumber".to_string()].into_iter().collect(),
             ),
         };
@@ -187,7 +191,7 @@ enabled: false
     fn test_should_coalesce_blacklist() {
         let config = RequestCoalescingConfig {
             enabled: true,
-            method_filter: RequestCoalescingMethods::Blacklist(
+            method_filter: RequestCoalescingMethodFilter::Blacklist(
                 vec!["eth_sendRawTransaction".to_string()]
                     .into_iter()
                     .collect(),
@@ -201,7 +205,7 @@ enabled: false
     fn test_should_coalesce_all() {
         let config = RequestCoalescingConfig {
             enabled: true,
-            method_filter: RequestCoalescingMethods::All,
+            method_filter: RequestCoalescingMethodFilter::All,
         };
         assert!(config.should_coalesce("eth_anyMethod"));
     }
@@ -210,13 +214,13 @@ enabled: false
     fn test_should_coalesce_disabled() {
         let config = RequestCoalescingConfig {
             enabled: false,
-            method_filter: RequestCoalescingMethods::All,
+            method_filter: RequestCoalescingMethodFilter::All,
         };
         assert!(!config.should_coalesce("eth_anyMethod"));
 
         let config = RequestCoalescingConfig {
             enabled: false,
-            method_filter: RequestCoalescingMethods::Whitelist(
+            method_filter: RequestCoalescingMethodFilter::Whitelist(
                 vec!["eth_blockNumber".to_string()].into_iter().collect(),
             ),
         };
