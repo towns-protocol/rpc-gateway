@@ -14,12 +14,17 @@ use rpc_gateway_rpc::error::RpcError;
 use rpc_gateway_rpc::request::RpcCall;
 use rpc_gateway_rpc::response::{ResponseResult, RpcResponse};
 use rpc_gateway_upstream::upstream::UpstreamError;
-use std::borrow::Cow;
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::time::Duration;
 use tracing::{debug, error, instrument, warn};
+
+const RESPONSE_SOURCE_UPSTREAM: &str = "upstream";
+const RESPONSE_SOURCE_COALESCED: &str = "coalesced";
+const RESPONSE_SOURCE_CACHED: &str = "cached";
+const RESPONSE_SOURCE_CANNED: &str = "canned";
+const RESPONSE_SOURCE_PRE_UPSTREAM_ERROR: &str = "pre_upstream_error";
 
 struct Cacheability {
     key: String,
@@ -38,29 +43,8 @@ impl Cacheability {
 }
 
 #[derive(Debug, Clone)]
-enum ChainHandlerResponseSource {
-    Upstream,
-    Coalesced,
-    Cached,
-    Canned,
-    PreUpstreamError,
-}
-
-impl From<ChainHandlerResponseSource> for Cow<'static, str> {
-    fn from(source: ChainHandlerResponseSource) -> Self {
-        Cow::Borrowed(match source {
-            ChainHandlerResponseSource::Upstream => "upstream",
-            ChainHandlerResponseSource::Coalesced => "coalesced",
-            ChainHandlerResponseSource::Cached => "cached",
-            ChainHandlerResponseSource::Canned => "canned",
-            ChainHandlerResponseSource::PreUpstreamError => "pre_upstream_error",
-        })
-    }
-}
-
-#[derive(Debug, Clone)]
 struct ChainHandlerResponse {
-    response_source: ChainHandlerResponseSource,
+    response_source: &'static str,
     response_result: ResponseResult,
 }
 
@@ -73,7 +57,7 @@ pub struct ChainHandler {
     pub request_coalescing_config: RequestCoalescingConfig,
     pub canned_responses_config: CannedResponseConfig,
     pub request_pool: Arc<ChainRequestPool>,
-    pub cache: Option<Arc<RpcCache>>, // TODO: is this the right way to do this?
+    pub cache: Option<Arc<RpcCache>>,
     in_flight_requests: Arc<DashMap<String, SharedResponseFuture>>, // TODO: is there a max size here? what's the limit?
 }
 use std::sync::LazyLock;
@@ -152,7 +136,7 @@ impl ChainHandler {
           "RPC response ready",
         );
 
-        let source: Cow<'static, str> = chain_handler_response.response_source.into(); // TODO: is this the right way to do this?
+        let source = chain_handler_response.response_source;
         let success = match &chain_handler_response.response_result {
             ResponseResult::Success(_) => "true",
             ResponseResult::Error(err) => {
@@ -171,7 +155,7 @@ impl ChainHandler {
           "chain_id" => chain_id.clone(),
           "rpc_method" => call.deserialized.method.clone(),
           "response_success" => success,
-          "response_source" => source.clone(),
+          "response_source" => source,
           "gateway_project" => project_config.name.clone(), // TODO: this should come from the span
         )
         .increment(1);
@@ -183,7 +167,7 @@ impl ChainHandler {
           "chain_id" => chain_id.clone(),
           "rpc_method" => call.deserialized.method.clone(),
           "response_success" => success,
-          "response_source" => source.clone(),
+          "response_source" => source,
           "gateway_project" => project_config.name.clone(),
         )
         .record(duration.as_secs_f64());
@@ -265,7 +249,7 @@ impl ChainHandler {
 
         if coalesced {
             return ChainHandlerResponse {
-                response_source: ChainHandlerResponseSource::Coalesced,
+                response_source: RESPONSE_SOURCE_COALESCED,
                 response_result: result.response_result,
             };
         }
@@ -319,7 +303,7 @@ impl ChainHandler {
         if let Some(response_result) = canned_response {
             // TODO: may want to cache canned responses if they are expensive to generate
             return ChainHandlerResponse {
-                response_source: ChainHandlerResponseSource::Canned,
+                response_source: RESPONSE_SOURCE_CANNED,
                 response_result,
             };
         }
@@ -348,7 +332,7 @@ async fn forward_to_upstream(
     let error = match request_pool.forward_request(raw_call).await {
         Ok(response) => {
             return ChainHandlerResponse {
-                response_source: ChainHandlerResponseSource::Upstream,
+                response_source: RESPONSE_SOURCE_UPSTREAM,
                 response_result: response.result,
             };
         }
@@ -356,24 +340,33 @@ async fn forward_to_upstream(
     };
 
     let response = match error {
-        RequestPoolError::NoUpstreamsAvailable => ChainHandlerResponse {
-            response_source: ChainHandlerResponseSource::PreUpstreamError,
-            response_result: ResponseResult::Error(RpcError::internal_error_with(
-                "No upstreams available",
-            )),
-        },
-        RequestPoolError::UpstreamError(UpstreamError::RequestError(_)) => ChainHandlerResponse {
-            response_source: ChainHandlerResponseSource::PreUpstreamError,
-            response_result: ResponseResult::Error(RpcError::internal_error_with(
-                "Could not forward request to upstream",
-            )),
-        },
-        RequestPoolError::UpstreamError(UpstreamError::ResponseError(_)) => ChainHandlerResponse {
-            response_source: ChainHandlerResponseSource::Upstream,
-            response_result: ResponseResult::Error(RpcError::internal_error_with(
-                "Upstream response error",
-            )),
-        },
+        RequestPoolError::NoUpstreamsAvailable => {
+            error!("no upstreams available");
+            ChainHandlerResponse {
+                response_source: RESPONSE_SOURCE_PRE_UPSTREAM_ERROR,
+                response_result: ResponseResult::Error(RpcError::internal_error_with(
+                    "No upstreams available",
+                )),
+            }
+        }
+        RequestPoolError::UpstreamError(UpstreamError::RequestError(_)) => {
+            error!("upstream request error");
+            ChainHandlerResponse {
+                response_source: RESPONSE_SOURCE_PRE_UPSTREAM_ERROR,
+                response_result: ResponseResult::Error(RpcError::internal_error_with(
+                    "Could not forward request to upstream",
+                )),
+            }
+        }
+        RequestPoolError::UpstreamError(UpstreamError::ResponseError(_)) => {
+            error!("upstream response error");
+            ChainHandlerResponse {
+                response_source: RESPONSE_SOURCE_UPSTREAM,
+                response_result: ResponseResult::Error(RpcError::internal_error_with(
+                    "Upstream response error",
+                )),
+            }
+        }
     };
 
     // TODO: add better logging and fields for the error. also add metrics and counters.
@@ -390,7 +383,7 @@ async fn cache_then_upstream(
     if let Some(cacheability) = &cacheability {
         if let Some(response_result) = cacheability.get().await {
             return ChainHandlerResponse {
-                response_source: ChainHandlerResponseSource::Cached,
+                response_source: RESPONSE_SOURCE_CACHED,
                 response_result: ResponseResult::Success(response_result),
             };
         }
@@ -398,10 +391,7 @@ async fn cache_then_upstream(
 
     let response = forward_to_upstream(request_pool, raw_call).await;
 
-    if matches!(
-        response.response_source,
-        ChainHandlerResponseSource::Upstream
-    ) {
+    if matches!(response.response_source, RESPONSE_SOURCE_UPSTREAM) {
         if let Some(cacheability) = cacheability {
             if let ResponseResult::Success(response_result) = &response.response_result {
                 cacheability.insert(response_result).await;
