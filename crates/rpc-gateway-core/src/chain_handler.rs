@@ -26,13 +26,13 @@ const RESPONSE_SOURCE_CACHED: &str = "cached";
 const RESPONSE_SOURCE_CANNED: &str = "canned";
 const RESPONSE_SOURCE_PRE_UPSTREAM_ERROR: &str = "pre_upstream_error";
 
-struct Cacheability {
+struct CacheIntent {
     key: String,
     ttl: Duration,
     cache: Arc<RpcCache>,
 }
 
-impl Cacheability {
+impl CacheIntent {
     async fn insert(self, res: &serde_json::Value) {
         self.cache.insert(self.key, res, self.ttl).await;
     }
@@ -202,10 +202,10 @@ impl ChainHandler {
     async fn handle_request_with_coalescing(
         &self,
         call: &PreservedMethodCall,
-        cacheability: Option<Cacheability>,
+        cache_intent: Option<CacheIntent>,
     ) -> ChainHandlerResponse {
-        let coalescing_key = match &cacheability {
-            Some(cacheability) => cacheability.key.clone(),
+        let coalescing_key = match &cache_intent {
+            Some(cache_intent) => cache_intent.key.clone(),
             None => {
                 let method = call.deserialized.method.clone();
                 let params = serde_json::to_string(&call.deserialized.params).unwrap();
@@ -222,7 +222,7 @@ impl ChainHandler {
                     let raw_call = call.raw.clone();
                     let inner_fut: Shared<
                         Pin<Box<dyn Future<Output = ChainHandlerResponse> + Send>>,
-                    > = cache_then_upstream(request_pool, raw_call, cacheability)
+                    > = cache_then_upstream(request_pool, raw_call, cache_intent)
                         .boxed()
                         .shared();
 
@@ -258,10 +258,7 @@ impl ChainHandler {
     }
 
     #[inline]
-    fn get_cacheability(
-        &self,
-        req: &Result<EthRequest, serde_json::Error>,
-    ) -> Option<Cacheability> {
+    fn get_cache_intent(&self, req: &Result<EthRequest, serde_json::Error>) -> Option<CacheIntent> {
         let cache = match &self.cache {
             Some(cache) => cache,
             None => return None,
@@ -281,7 +278,7 @@ impl ChainHandler {
         // TODO: missed oppotrunity: if the request is coalescable, but not cacheable, we'd be forcing the
         // coalescing key compute to use the raw call instead of eth request.
 
-        Some(Cacheability {
+        Some(CacheIntent {
             key,
             ttl,
             cache: cache.clone(),
@@ -308,16 +305,16 @@ impl ChainHandler {
             };
         }
 
-        let cacheability = self.get_cacheability(&req);
+        let cache_intent = self.get_cache_intent(&req);
 
         if self
             .request_coalescing_config
             .should_coalesce(&call.deserialized.method)
         {
-            self.handle_request_with_coalescing(&call, cacheability)
+            self.handle_request_with_coalescing(&call, cache_intent)
                 .await
         } else {
-            cache_then_upstream(self.request_pool.clone(), call.raw.clone(), cacheability).await
+            cache_then_upstream(self.request_pool.clone(), call.raw.clone(), cache_intent).await
         }
     }
 }
@@ -378,10 +375,10 @@ async fn forward_to_upstream(
 async fn cache_then_upstream(
     request_pool: Arc<ChainRequestPool>,
     raw_call: Bytes,
-    cacheability: Option<Cacheability>,
+    cache_intent: Option<CacheIntent>,
 ) -> ChainHandlerResponse {
-    if let Some(cacheability) = &cacheability {
-        if let Some(response_result) = cacheability.get().await {
+    if let Some(cache_intent) = &cache_intent {
+        if let Some(response_result) = cache_intent.get().await {
             return ChainHandlerResponse {
                 response_source: RESPONSE_SOURCE_CACHED,
                 response_result: ResponseResult::Success(response_result),
@@ -392,9 +389,9 @@ async fn cache_then_upstream(
     let response = forward_to_upstream(request_pool, raw_call).await;
 
     if matches!(response.response_source, RESPONSE_SOURCE_UPSTREAM) {
-        if let Some(cacheability) = cacheability {
+        if let Some(cache_intent) = cache_intent {
             if let ResponseResult::Success(response_result) = &response.response_result {
-                cacheability.insert(response_result).await;
+                cache_intent.insert(response_result).await;
             }
         }
     }
