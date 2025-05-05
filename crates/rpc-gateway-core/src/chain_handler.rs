@@ -386,7 +386,12 @@ async fn cache_then_upstream(
         }
     }
 
+    let start_time = std::time::Instant::now();
     let response = forward_to_upstream(request_pool, raw_call).await;
+    let duration = start_time.elapsed();
+
+    // TODO: add labels
+    histogram!("upstream_response_latency_seconds").record(duration.as_secs_f64());
 
     if matches!(response.response_source, RESPONSE_SOURCE_UPSTREAM) {
         if let Some(cache_intent) = cache_intent {
