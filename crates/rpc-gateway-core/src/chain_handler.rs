@@ -14,6 +14,7 @@ use rpc_gateway_rpc::error::RpcError;
 use rpc_gateway_rpc::request::RpcCall;
 use rpc_gateway_rpc::response::{ResponseResult, RpcResponse};
 use rpc_gateway_upstream::upstream::UpstreamError;
+use std::error::Error;
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
@@ -369,7 +370,7 @@ async fn forward_to_upstream(
             }
         }
         RequestPoolError::UpstreamError(UpstreamError::RequestError(e)) => {
-            error!(?e, "upstream request error");
+            error!(?e, error_source = ?e.source(), "upstream request error");
             ChainHandlerResponse {
                 response_source: RESPONSE_SOURCE_PRE_UPSTREAM_ERROR,
                 response_result: ResponseResult::Error(RpcError::internal_error_with(
@@ -378,7 +379,7 @@ async fn forward_to_upstream(
             }
         }
         RequestPoolError::UpstreamError(UpstreamError::ResponseError(e)) => {
-            error!(?e, "upstream response error");
+            error!(?e, error_source = ?e.source(), "upstream response error");
             ChainHandlerResponse {
                 response_source: RESPONSE_SOURCE_UPSTREAM,
                 response_result: ResponseResult::Error(RpcError::internal_error_with(
