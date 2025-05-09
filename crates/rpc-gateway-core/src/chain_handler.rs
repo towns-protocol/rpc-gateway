@@ -25,6 +25,7 @@ const RESPONSE_SOURCE_COALESCED: &str = "coalesced";
 const RESPONSE_SOURCE_CACHED: &str = "cached";
 const RESPONSE_SOURCE_CANNED: &str = "canned";
 const RESPONSE_SOURCE_PRE_UPSTREAM_ERROR: &str = "pre_upstream_error";
+const RESPONSE_SOURCE_UNSUPPORTED: &str = "unsupported";
 
 struct CacheIntent {
     key: String,
@@ -175,19 +176,26 @@ impl ChainHandler {
         RpcResponse::new(call.deserialized.id, response_result)
     }
 
-    async fn try_canned_response(&self, req: &EthRequest) -> Option<ResponseResult> {
-        // TODO: both for clientVersion and blockNumber, make sure we can respond to actual paramless requests
+    async fn try_canned_response(
+        &self,
+        req: &Result<EthRequest, serde_json::Error>,
+    ) -> Option<ResponseResult> {
+        let req = match req {
+            Ok(req) => req,
+            Err(_) => return None,
+        };
+
         if !self.canned_responses_config.enabled {
             return None;
         }
 
         match req {
-            EthRequest::Web3ClientVersion(_)
+            EthRequest::Web3ClientVersion { .. }
                 if self.canned_responses_config.methods.web3_client_version =>
             {
                 Some(CANNED_RESPONSE_CLIENT_VERSION.clone())
             }
-            EthRequest::EthChainId(_) if self.canned_responses_config.methods.eth_chain_id => {
+            EthRequest::EthChainId { .. } if self.canned_responses_config.methods.eth_chain_id => {
                 Some(ResponseResult::Success(serde_json::json!(format!(
                     "0x{:x}",
                     self.chain_config.chain.id()
@@ -207,7 +215,7 @@ impl ChainHandler {
         let coalescing_key = match &cache_intent {
             Some(cache_intent) => cache_intent.key.clone(),
             None => {
-                let method = call.deserialized.method.clone();
+                let method = call.deserialized.method.clone(); // TODO: should this be Cow instead?
                 let params = serde_json::to_string(&call.deserialized.params).unwrap();
                 format!("{}:{}", method, params)
             }
@@ -273,7 +281,7 @@ impl ChainHandler {
         };
 
         let ttl = cache.get_ttl(&req)?;
-        let key = serde_json::to_string(&req).ok()?;
+        let key = req.get_key();
 
         // TODO: missed oppotrunity: if the request is coalescable, but not cacheable, we'd be forcing the
         // coalescing key compute to use the raw call instead of eth request.
@@ -285,19 +293,33 @@ impl ChainHandler {
         })
     }
 
+    #[cold]
+    fn try_unsupported_response(&self, call: &PreservedMethodCall) -> Option<ChainHandlerResponse> {
+        if call.deserialized.method == "eth_newBlockFilter"
+            || call.deserialized.method == "eth_newPendingTransactionFilter"
+        {
+            Some(ChainHandlerResponse {
+                response_source: RESPONSE_SOURCE_UNSUPPORTED,
+                response_result: ResponseResult::Error(RpcError::method_not_found()), // TODO: this should technically be an unsupported method error
+            })
+        } else {
+            None
+        }
+    }
+
     async fn on_request(&self, call: &PreservedMethodCall) -> ChainHandlerResponse {
         // TODO: shouldn't there be an easier way to convert RpcMethodCall to EthRequest?
+
+        if let Some(response) = self.try_unsupported_response(call) {
+            return response;
+        }
+
         let req = serde_json::from_slice::<EthRequest>(&call.raw);
 
         // TODO: add this back
         // self.track_eth_call_requests(&req, project_config);
 
-        let canned_response = match &req {
-            Ok(req) => self.try_canned_response(req).await,
-            Err(_) => None,
-        };
-
-        if let Some(response_result) = canned_response {
+        if let Some(response_result) = self.try_canned_response(&req).await {
             // TODO: may want to cache canned responses if they are expensive to generate
             return ChainHandlerResponse {
                 response_source: RESPONSE_SOURCE_CANNED,
