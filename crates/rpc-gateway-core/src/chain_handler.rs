@@ -358,7 +358,7 @@ async fn forward_to_upstream(
         Err(e) => e,
     };
 
-    let response = match error {
+    let response = match &error {
         RequestPoolError::NoUpstreamsAvailable => {
             error!("no upstreams available");
             ChainHandlerResponse {
@@ -368,8 +368,8 @@ async fn forward_to_upstream(
                 )),
             }
         }
-        RequestPoolError::UpstreamError(UpstreamError::RequestError(_)) => {
-            error!("upstream request error");
+        RequestPoolError::UpstreamError(UpstreamError::RequestError(e)) => {
+            error!(?e, "upstream request error");
             ChainHandlerResponse {
                 response_source: RESPONSE_SOURCE_PRE_UPSTREAM_ERROR,
                 response_result: ResponseResult::Error(RpcError::internal_error_with(
@@ -377,8 +377,8 @@ async fn forward_to_upstream(
                 )),
             }
         }
-        RequestPoolError::UpstreamError(UpstreamError::ResponseError(_)) => {
-            error!("upstream response error");
+        RequestPoolError::UpstreamError(UpstreamError::ResponseError(e)) => {
+            error!(?e, "upstream response error");
             ChainHandlerResponse {
                 response_source: RESPONSE_SOURCE_UPSTREAM,
                 response_result: ResponseResult::Error(RpcError::internal_error_with(
