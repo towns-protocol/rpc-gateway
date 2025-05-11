@@ -10,7 +10,7 @@ use rpc_gateway_config::{
     CannedResponseConfig, ChainConfig, ProjectConfig, RequestCoalescingConfig,
 };
 use rpc_gateway_eth::eth::EthRequest;
-use rpc_gateway_rpc::error::RpcError;
+use rpc_gateway_rpc::error::{ErrorCode, RpcError};
 use rpc_gateway_rpc::request::RpcCall;
 use rpc_gateway_rpc::response::{ResponseResult, RpcResponse};
 use rpc_gateway_upstream::upstream::UpstreamError;
@@ -116,7 +116,7 @@ impl ChainHandler {
         }
     }
 
-    #[instrument(name = "on_method_call", fields(method = %call.deserialized.method, params = ?call.deserialized.params), skip(self, call, project_config))]
+    #[instrument(fields(method = %call.deserialized.method, params = ?call.deserialized.params), skip(self, call, project_config))]
     async fn on_method_call(
         &self,
         call: PreservedMethodCall,
@@ -141,13 +141,25 @@ impl ChainHandler {
         let source = chain_handler_response.response_source;
         let success = match &chain_handler_response.response_result {
             ResponseResult::Success(_) => "true",
+            ResponseResult::Error(e)
+                if e.code == ErrorCode::ExecutionError
+                    || e.code == ErrorCode::TransactionRejected =>
+            {
+                debug!(
+                  code = ?e.code,
+                  message = ?e.message,
+                  data = ?e.data,
+                  "method returned error, but it's expected"
+                );
+                "false"
+            }
             ResponseResult::Error(err) => {
                 // TODO: start a new counter for upstream errors, and label by status code and url
                 warn!(
                     code = ?err.code,
                     message = ?err.message,
                     data = ?err.data,
-                    "method returned error"
+                    "method returned unexpected error"
                 );
                 "false"
             }
@@ -388,9 +400,6 @@ async fn forward_to_upstream(
             }
         }
     };
-
-    // TODO: add better logging and fields for the error. also add metrics and counters.
-    warn!(?error, "request pool error");
 
     response
 }
