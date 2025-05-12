@@ -21,6 +21,7 @@ pub struct Upstream {
 pub enum UpstreamError {
     RequestError(reqwest::Error),
     ResponseError(reqwest::Error),
+    JsonError(serde_json::Error),
 }
 
 use std::sync::LazyLock;
@@ -107,9 +108,14 @@ impl Upstream {
                 UpstreamError::RequestError(e)
             })?;
         // TODO: rebuild your own RpcResponse type. need to be able to access the .result field.
-        let rpc_response = raw_response.json::<RpcResponse>().await.map_err(|e| {
+        let rpc_response = raw_response.bytes().await.map_err(|e| {
             error!(?e, error_source = ?e.source(), "upstream response error");
             UpstreamError::ResponseError(e)
+        })?;
+
+        let rpc_response = serde_json::from_slice::<RpcResponse>(&rpc_response).map_err(|e| {
+            error!(?e, error_source = ?e.source(), bytes_response = ?rpc_response, "upstream response json error");
+            UpstreamError::JsonError(e)
         })?;
         return Ok(rpc_response);
     }
