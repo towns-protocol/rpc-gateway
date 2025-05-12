@@ -4,7 +4,7 @@ use rpc_gateway_config::ErrorHandlingConfig;
 use rpc_gateway_rpc::response::RpcResponse;
 use rpc_gateway_upstream::upstream::UpstreamError;
 use std::sync::Arc;
-use tracing::{debug, instrument, warn};
+use tracing::{debug, error, instrument, warn};
 
 // TODO: maybe request coalescing should be done here?
 
@@ -33,6 +33,7 @@ impl ChainRequestPool {
         let upstream = match self.load_balancer.select_upstream() {
             Some(upstream) => upstream,
             None => {
+                error!("no upstreams available");
                 return Err(RequestPoolError::NoUpstreamsAvailable);
             }
         };
@@ -49,7 +50,7 @@ impl ChainRequestPool {
                     "Using retry strategy"
                 );
                 upstream
-                    .forward_with_retry(raw_call, *max_retries, *retry_delay, *jitter)
+                    .forward_with_retry(&raw_call, *max_retries, *retry_delay, *jitter)
                     .await
                     .map_err(|err| RequestPoolError::UpstreamError(err))
             }

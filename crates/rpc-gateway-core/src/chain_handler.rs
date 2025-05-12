@@ -372,33 +372,24 @@ async fn forward_to_upstream(
     };
 
     let response = match &error {
-        RequestPoolError::NoUpstreamsAvailable => {
-            error!("no upstreams available");
-            ChainHandlerResponse {
-                response_source: RESPONSE_SOURCE_PRE_UPSTREAM_ERROR,
-                response_result: ResponseResult::Error(RpcError::internal_error_with(
-                    "No upstreams available",
-                )),
-            }
-        }
-        RequestPoolError::UpstreamError(UpstreamError::RequestError(e)) => {
-            error!(?e, error_source = ?e.source(), "upstream request error");
-            ChainHandlerResponse {
-                response_source: RESPONSE_SOURCE_PRE_UPSTREAM_ERROR,
-                response_result: ResponseResult::Error(RpcError::internal_error_with(
-                    "Could not forward request to upstream",
-                )),
-            }
-        }
-        RequestPoolError::UpstreamError(UpstreamError::ResponseError(e)) => {
-            error!(?e, error_source = ?e.source(), "upstream response error");
-            ChainHandlerResponse {
-                response_source: RESPONSE_SOURCE_UPSTREAM,
-                response_result: ResponseResult::Error(RpcError::internal_error_with(
-                    "Upstream response error",
-                )),
-            }
-        }
+        RequestPoolError::NoUpstreamsAvailable => ChainHandlerResponse {
+            response_source: RESPONSE_SOURCE_PRE_UPSTREAM_ERROR,
+            response_result: ResponseResult::Error(RpcError::internal_error_with(
+                "No upstreams available",
+            )),
+        },
+        RequestPoolError::UpstreamError(UpstreamError::RequestError(e)) => ChainHandlerResponse {
+            response_source: RESPONSE_SOURCE_PRE_UPSTREAM_ERROR,
+            response_result: ResponseResult::Error(RpcError::internal_error_with(
+                "Could not forward request to upstream",
+            )),
+        },
+        RequestPoolError::UpstreamError(UpstreamError::ResponseError(e)) => ChainHandlerResponse {
+            response_source: RESPONSE_SOURCE_UPSTREAM,
+            response_result: ResponseResult::Error(RpcError::internal_error_with(
+                "Upstream response error",
+            )),
+        },
     };
 
     response

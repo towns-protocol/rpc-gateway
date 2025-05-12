@@ -1,4 +1,4 @@
-use std::time::Duration;
+use std::{error::Error, time::Duration};
 
 use alloy_chains::Chain;
 use alloy_primitives::U64;
@@ -102,12 +102,15 @@ impl Upstream {
             .header("Content-Type", "application/json")
             .send()
             .await
-            .map_err(|e| UpstreamError::RequestError(e))?;
+            .map_err(|e| {
+                error!(?e, error_source = ?e.source(), "upstream request error");
+                UpstreamError::RequestError(e)
+            })?;
         // TODO: rebuild your own RpcResponse type. need to be able to access the .result field.
-        let rpc_response = raw_response
-            .json::<RpcResponse>()
-            .await
-            .map_err(|e| UpstreamError::ResponseError(e))?;
+        let rpc_response = raw_response.json::<RpcResponse>().await.map_err(|e| {
+            error!(?e, error_source = ?e.source(), "upstream response error");
+            UpstreamError::ResponseError(e)
+        })?;
         return Ok(rpc_response);
     }
 
@@ -115,7 +118,7 @@ impl Upstream {
     #[instrument(skip(self))]
     pub async fn forward_with_retry(
         &self,
-        raw_call: Bytes,
+        raw_call: &Bytes,
         max_retries: u32,
         retry_delay: Duration,
         jitter: bool,
@@ -124,7 +127,7 @@ impl Upstream {
         let mut current_retry = 0;
 
         while current_retry <= max_retries {
-            match self.forward_once(&raw_call).await {
+            match self.forward_once(raw_call).await {
                 Ok(response) => {
                     info!(
                         retry_count = %current_retry,
