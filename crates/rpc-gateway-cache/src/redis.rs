@@ -33,6 +33,7 @@ impl RedisCache {
         let manager = RedisConnectionManager::new(config.url.clone())?;
         let pool = Pool::builder()
             .max_size(config.pool_size)
+            .connection_timeout(Duration::from_secs(1))
             .build(manager)
             .await?;
         Ok(pool)
