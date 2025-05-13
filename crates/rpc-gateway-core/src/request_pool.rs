@@ -28,7 +28,7 @@ impl ChainRequestPool {
         }
     }
 
-    #[instrument(skip(self))]
+    #[instrument()]
     pub async fn forward_request(&self, raw_call: Bytes) -> Result<RpcResponse, RequestPoolError> {
         let upstream = match self.load_balancer.select_upstream() {
             Some(upstream) => upstream,

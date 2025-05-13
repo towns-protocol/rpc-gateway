@@ -171,28 +171,7 @@ impl ChainHandler {
         let source = chain_handler_response.response_source;
         let success = match &chain_handler_response.response_result {
             ResponseResult::Success(_) => "true",
-            ResponseResult::Error(e)
-                if e.code == ErrorCode::ExecutionError
-                    || e.code == ErrorCode::TransactionRejected =>
-            {
-                debug!(
-                  code = ?e.code,
-                  message = ?e.message,
-                  data = ?e.data,
-                  "method returned error, but it's expected"
-                );
-                "false"
-            }
-            ResponseResult::Error(err) => {
-                // TODO: start a new counter for upstream errors, and label by status code and url
-                warn!(
-                    code = ?err.code,
-                    message = ?err.message,
-                    data = ?err.data,
-                    "method returned unexpected error"
-                );
-                "false"
-            }
+            ResponseResult::Error(_) => "false",
         };
 
         counter!("method_call_response_total",
@@ -207,6 +186,7 @@ impl ChainHandler {
         let response_result = chain_handler_response.response_result;
 
         let duration = start_time.elapsed();
+
         histogram!("method_call_response_latency_seconds",
           "chain_id" => chain_id.clone(),
           "rpc_method" => call.deserialized.method.clone(),

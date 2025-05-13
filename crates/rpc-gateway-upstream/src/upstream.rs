@@ -6,7 +6,10 @@ use bytes::Bytes;
 use rand::Rng;
 use reqwest::Client;
 use rpc_gateway_config::UpstreamConfig;
-use rpc_gateway_rpc::response::{ResponseResult, RpcResponse};
+use rpc_gateway_rpc::{
+    error::ErrorCode,
+    response::{ResponseResult, RpcResponse},
+};
 use tracing::{debug, error, info, instrument, warn};
 
 #[derive(Debug)]
@@ -125,6 +128,30 @@ impl Upstream {
             error!(?e, status = ?status, error_source = ?e.source(), bytes_response = ?rpc_response, "upstream response json error");
             UpstreamError::JsonError
         })?;
+
+        match &rpc_response.result {
+            ResponseResult::Success(_) => {}
+            ResponseResult::Error(e)
+                if e.code == ErrorCode::ExecutionError
+                    || e.code == ErrorCode::TransactionRejected =>
+            {
+                debug!(
+                  err_code = ?e.code,
+                  err_message = ?e.message,
+                  err_data = ?e.data,
+                  "upstream returned error, but it's expected"
+                );
+            }
+            ResponseResult::Error(err) => {
+                // TODO: start a new counter for upstream errors, and label by status code and url
+                error!(
+                    err_code = ?err.code,
+                    err_message = ?err.message,
+                    err_data = ?err.data,
+                    "upstream returned unexpected error"
+                );
+            }
+        };
         return Ok(rpc_response);
     }
 
