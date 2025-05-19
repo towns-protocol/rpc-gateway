@@ -23,7 +23,7 @@ spec:
         {{- toYaml . | nindent 8 }}
       {{- end }}
       labels:
-        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum | trunc 6 }}
+        checksum/config: "{{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum | trunc 6 }}"
         {{- include "rpc-gateway.selectorLabels" . | nindent 8 }}
         {{- with .Values.podLabels }}
         {{- toYaml . | nindent 8 }}
