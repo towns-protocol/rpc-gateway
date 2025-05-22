@@ -50,11 +50,12 @@ jobs:
           ECR_REPOSITORY: rpc-gateway
           IS_LATEST_OR_PUSH: ${{ github.event_name == 'push' || github.event.inputs.is_latest }}
         run: |
+          SHORT_SHA=$(git rev-parse --short HEAD)
           docker build \
-            --build-arg GIT_SHA=${{ github.sha }} \
+            --build-arg GIT_SHA=$SHORT_SHA \
             -f ./Dockerfile \
             -t $ECR_REGISTRY/$REGISTRY_ALIAS/$ECR_REPOSITORY:latest \
-            -t $ECR_REGISTRY/$REGISTRY_ALIAS/$ECR_REPOSITORY:${{ github.sha }} \
+            -t $ECR_REGISTRY/$REGISTRY_ALIAS/$ECR_REPOSITORY:$SHORT_SHA \
             .
 
           if [ $IS_LATEST_OR_PUSH == true ]; then
@@ -64,7 +65,7 @@ jobs:
               echo "Not pushing docker image with latest tag"
           fi
 
-          docker push $ECR_REGISTRY/$REGISTRY_ALIAS/$ECR_REPOSITORY:${{ github.sha }}
+          docker push $ECR_REGISTRY/$REGISTRY_ALIAS/$ECR_REPOSITORY:$SHORT_SHA
 
       # # If action failed, we send a slack notification
       # - name: Slack notification
