@@ -154,7 +154,10 @@ impl LoadBalancer for FailoverLoadBalancer {
 
     fn select_upstreams(&self) -> Vec<Arc<Upstream>> {
         // Return healthy upstreams sorted by weight (highest first)
-        self.health_check_manager.healthy_upstreams().to_vec()
+        // Re-sort to ensure deterministic ordering regardless of health check completion order
+        let mut upstreams = self.health_check_manager.healthy_upstreams().to_vec();
+        upstreams.sort_by(|a, b| b.config.weight.cmp(&a.config.weight));
+        upstreams
     }
 
     fn get_health_check_manager(&self) -> Arc<HealthCheckManager> {
