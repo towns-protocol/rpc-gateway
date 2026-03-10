@@ -18,9 +18,13 @@ pub struct HealthCheckManager {
 
 impl HealthCheckManager {
     /// Creates a new health check manager for the given upstreams.
+    ///
+    /// Initially assumes all upstreams are healthy to allow requests to succeed
+    /// before the first health check completes (or when health checks are disabled).
     pub fn new(all_upstreams: NonEmpty<Arc<Upstream>>, config: UpstreamHealthChecksConfig) -> Self {
+        let initial_healthy: Vec<_> = all_upstreams.iter().cloned().collect();
         Self {
-            healthy_upstreams: ArcSwap::from_pointee(vec![]),
+            healthy_upstreams: ArcSwap::from_pointee(initial_healthy),
             all_upstreams,
             config,
         }
