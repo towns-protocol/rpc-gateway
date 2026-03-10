@@ -10,20 +10,29 @@ use rpc_gateway_rpc::{
     error::ErrorCode,
     response::{ResponseResult, RpcResponse},
 };
+use metrics::counter;
 use tracing::{debug, error, info, instrument, warn};
 
+/// Represents an upstream RPC endpoint that can forward requests.
 #[derive(Debug)]
 pub struct Upstream {
+    /// Configuration for this upstream.
     pub config: UpstreamConfig,
+    /// Current weight used for load balancing (may be decayed).
     pub current_weight: f64,
+    /// The blockchain chain this upstream serves.
     pub chain: Chain,
     client: Client,
 }
 
+/// Errors that can occur when communicating with an upstream.
 #[derive(Debug)]
 pub enum UpstreamError {
+    /// Failed to send the request to the upstream (connection error, timeout, etc.).
     RequestError,
+    /// Upstream returned a non-success HTTP status code (e.g., 429, 500).
     ResponseError,
+    /// Failed to parse the upstream's response as valid JSON-RPC.
     JsonError,
 }
 
@@ -41,26 +50,38 @@ static CHAIN_ID_REQUEST: LazyLock<Bytes> = LazyLock::new(|| {
 });
 
 impl Upstream {
+    /// Creates a new upstream with the given configuration and chain.
     pub fn new(config: UpstreamConfig, chain: Chain) -> Self {
+        let client = Client::builder()
+            .timeout(config.timeout)
+            .build()
+            .unwrap();
+
         Self {
             current_weight: config.weight as f64,
             config,
             chain,
-            client: Client::builder()
-                .timeout(Duration::from_secs(2)) // TODO: make this configurable
-                .build()
-                .unwrap(),
+            client,
         }
     }
 
+    /// Returns the configured name of this upstream.
+    #[inline]
+    pub fn name(&self) -> &str {
+        &self.config.name
+    }
+
+    /// Applies a decay factor to the current weight.
     pub fn apply_weight_decay(&mut self, decay: f64) {
         self.current_weight *= decay;
     }
 
+    /// Resets the current weight to the configured weight.
     pub fn reset_weight(&mut self) {
         self.current_weight = self.config.weight as f64;
     }
 
+    /// Performs a health check by sending an eth_chainId request and verifying the response.
     #[instrument(skip(self))]
     pub async fn readiness_probe(&self) -> bool {
         let response = match self.forward_once(&CHAIN_ID_REQUEST).await {
@@ -76,7 +97,7 @@ impl Upstream {
         let chain_id: U64 = match serde_json::from_value(success_result) {
             Ok(chain_id) => chain_id,
             Err(_) => {
-                error!(upstream = ?self, "Could not parse chain id in readiness probe");
+                error!(upstream = %self.name(), chain_id = %self.chain.id(), "Could not parse chain id in readiness probe");
                 return false;
             }
         };
@@ -84,16 +105,17 @@ impl Upstream {
         let self_chain_id: U64 = U64::from(self.chain.id());
 
         if self_chain_id == chain_id {
-            debug!(upstream = ?self, "Readiness probe passed");
+            debug!(upstream = %self.name(), chain_id = %self.chain.id(), "Readiness probe passed");
             return true;
         } else {
-            error!(upstream = ?self, expected_chain_id = %self_chain_id, actual_chain_id = %chain_id, "Readiness probe failed. Chain id mismatch");
+            error!(upstream = %self.name(), expected_chain_id = %self_chain_id, actual_chain_id = %chain_id, "Readiness probe failed. Chain id mismatch");
             return false;
         }
     }
 
+    /// Forwards a single request to this upstream without retries.
     // TODO: do the lazy_request trick but for the response now
-    #[instrument(skip(self))]
+    #[instrument(skip(self, raw_call))]
     pub async fn forward_once(&self, raw_call: &Bytes) -> Result<RpcResponse, UpstreamError> {
         // TODO: try parsing the response as an alloy_json_rpc::Response
         // TODO: make sure the upstream errors can be represented as an RpcError.
@@ -108,6 +130,13 @@ impl Upstream {
             .await
             .map_err(|e| {
                 error!(?e, error_source = ?e.source(), "upstream request error");
+                counter!(
+                    "upstream_error_total",
+                    "upstream" => self.config.name.clone(),
+                    "error_type" => "request_error",
+                    "http_status" => "n/a"
+                )
+                .increment(1);
                 UpstreamError::RequestError
             })?;
 
@@ -115,17 +144,38 @@ impl Upstream {
 
         if !status.is_success() {
             error!(status = ?status, "upstream response error");
+            counter!(
+                "upstream_error_total",
+                "upstream" => self.config.name.clone(),
+                "error_type" => "response_error",
+                "http_status" => status.as_u16().to_string()
+            )
+            .increment(1);
             return Err(UpstreamError::ResponseError);
         }
 
         // TODO: rebuild your own RpcResponse type. need to be able to access the .result field.
         let rpc_response = raw_response.bytes().await.map_err(|e| {
             error!(?e, status = ?status, error_source = ?e.source(), "upstream response error");
+            counter!(
+                "upstream_error_total",
+                "upstream" => self.config.name.clone(),
+                "error_type" => "response_error",
+                "http_status" => status.as_u16().to_string()
+            )
+            .increment(1);
             UpstreamError::ResponseError
         })?;
 
         let rpc_response = serde_json::from_slice::<RpcResponse>(&rpc_response).map_err(|e| {
-            error!(?e, status = ?status, error_source = ?e.source(), bytes_response = ?rpc_response, "upstream response json error");
+            error!(?e, status = ?status, error_source = ?e.source(), response_len = rpc_response.len(), "upstream response json error");
+            counter!(
+                "upstream_error_total",
+                "upstream" => self.config.name.clone(),
+                "error_type" => "json_error",
+                "http_status" => status.as_u16().to_string()
+            )
+            .increment(1);
             UpstreamError::JsonError
         })?;
 
@@ -155,8 +205,9 @@ impl Upstream {
         return Ok(rpc_response);
     }
 
+    /// Forwards a request with automatic retries on failure.
     // # TODO: standardize error handling
-    #[instrument(skip(self))]
+    #[instrument(skip(self, raw_call))]
     pub async fn forward_with_retry(
         &self,
         raw_call: &Bytes,

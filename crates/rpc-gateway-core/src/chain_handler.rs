@@ -1,5 +1,5 @@
 use crate::lazy_request::{PreservedMethodCall, PreservedSingleCall};
-use crate::request_pool::{ChainRequestPool, RequestPoolError};
+use crate::request_pool::{ChainRequestPool, ForwardResult, RequestPoolError};
 use bytes::Bytes;
 use dashmap::DashMap;
 use futures::FutureExt;
@@ -35,24 +35,40 @@ impl From<RequestPoolError> for ChainHandlerResponse {
                 response_result: ResponseResult::Error(RpcError::internal_error_with(
                     "No upstreams available",
                 )),
+                upstream_name: None,
+                failed_over: None,
             },
             RequestPoolError::UpstreamError(UpstreamError::RequestError) => ChainHandlerResponse {
                 response_source: RESPONSE_SOURCE_PRE_UPSTREAM_ERROR,
                 response_result: ResponseResult::Error(RpcError::internal_error_with(
                     "Could not forward request to upstream",
                 )),
+                upstream_name: None,
+                failed_over: None,
             },
             RequestPoolError::UpstreamError(UpstreamError::ResponseError) => ChainHandlerResponse {
                 response_source: RESPONSE_SOURCE_UPSTREAM,
                 response_result: ResponseResult::Error(RpcError::internal_error_with(
                     "Upstream response error",
                 )),
+                upstream_name: None,
+                failed_over: None,
             },
             RequestPoolError::UpstreamError(UpstreamError::JsonError) => ChainHandlerResponse {
                 response_source: RESPONSE_SOURCE_UPSTREAM,
                 response_result: ResponseResult::Error(RpcError::internal_error_with(
                     "Upstream response json parsing error",
                 )),
+                upstream_name: None,
+                failed_over: None,
+            },
+            RequestPoolError::AllUpstreamsFailed => ChainHandlerResponse {
+                response_source: RESPONSE_SOURCE_PRE_UPSTREAM_ERROR,
+                response_result: ResponseResult::Error(RpcError::internal_error_with(
+                    "All upstreams failed",
+                )),
+                upstream_name: None,
+                failed_over: Some(true),
             },
         }
     }
@@ -78,17 +94,25 @@ impl CacheIntent {
 struct ChainHandlerResponse {
     response_source: &'static str,
     response_result: ResponseResult,
+    upstream_name: Option<String>,
+    failed_over: Option<bool>,
 }
 
 type BoxedResponseFuture = Pin<Box<dyn Future<Output = ChainHandlerResponse> + Send>>;
 type SharedResponseFuture = Shared<BoxedResponseFuture>;
 
+/// Handles RPC requests for a specific blockchain, managing caching, coalescing, and upstream forwarding.
 #[derive(Debug)]
 pub struct ChainHandler {
+    /// Configuration for this chain.
     pub chain_config: Arc<ChainConfig>,
+    /// Configuration for request coalescing.
     pub request_coalescing_config: RequestCoalescingConfig,
+    /// Configuration for canned responses.
     pub canned_responses_config: CannedResponseConfig,
+    /// Pool for forwarding requests to upstreams.
     pub request_pool: Arc<ChainRequestPool>,
+    /// Optional cache for RPC responses.
     pub cache: Option<Arc<RpcCache>>,
     in_flight_requests: Arc<DashMap<String, SharedResponseFuture>>, // TODO: is there a max size here? what's the limit?
 }
@@ -100,6 +124,7 @@ static CANNED_RESPONSE_CLIENT_VERSION: LazyLock<ResponseResult> = LazyLock::new(
 });
 
 impl ChainHandler {
+    /// Creates a new chain handler with the given configuration.
     pub fn new(
         chain_config: &ChainConfig,
         request_coalescing_config: &RequestCoalescingConfig,
@@ -117,7 +142,7 @@ impl ChainHandler {
         }
     }
 
-    /// handle a single RPC method call
+    /// Handles a single RPC call, returning the response or None for notifications.
     pub async fn handle_call(
         &self,
         call: PreservedSingleCall,
@@ -173,6 +198,11 @@ impl ChainHandler {
             ResponseResult::Success(_) => "true",
             ResponseResult::Error(_) => "false",
         };
+        let failed_over = match chain_handler_response.failed_over {
+            Some(true) => "true",
+            Some(false) => "false",
+            None => "n/a",
+        };
 
         counter!("method_call_response_total",
           "chain_id" => chain_id.clone(),
@@ -180,6 +210,7 @@ impl ChainHandler {
           "response_success" => success,
           "response_source" => source,
           "gateway_project" => project_config.name.clone(), // TODO: this should come from the span
+          "failed_over" => failed_over,
         )
         .increment(1);
 
@@ -282,6 +313,8 @@ impl ChainHandler {
             return ChainHandlerResponse {
                 response_source: RESPONSE_SOURCE_COALESCED,
                 response_result: result.response_result,
+                upstream_name: result.upstream_name,
+                failed_over: result.failed_over,
             };
         }
 
@@ -324,6 +357,8 @@ impl ChainHandler {
             Some(ChainHandlerResponse {
                 response_source: RESPONSE_SOURCE_UNSUPPORTED,
                 response_result: ResponseResult::Error(RpcError::method_not_found()), // TODO: this should technically be an unsupported method error
+                upstream_name: None,
+                failed_over: None,
             })
         } else {
             None
@@ -347,6 +382,8 @@ impl ChainHandler {
             return ChainHandlerResponse {
                 response_source: RESPONSE_SOURCE_CANNED,
                 response_result,
+                upstream_name: None,
+                failed_over: None,
             };
         }
 
@@ -372,10 +409,16 @@ async fn forward_to_upstream(
     // TODO: metrics and logs should distinguish between legal rpc error responses returned from upstreams,
     // and errors generated by the proxy itself.
     match request_pool.forward_request(raw_call).await {
-        Ok(response) => {
+        Ok(ForwardResult {
+            response,
+            upstream_name,
+            failed_over,
+        }) => {
             return ChainHandlerResponse {
                 response_source: RESPONSE_SOURCE_UPSTREAM,
                 response_result: response.result,
+                upstream_name: Some(upstream_name),
+                failed_over: Some(failed_over),
             };
         }
         Err(e) => ChainHandlerResponse::from(e),
@@ -392,6 +435,8 @@ async fn cache_then_upstream(
             return ChainHandlerResponse {
                 response_source: RESPONSE_SOURCE_CACHED,
                 response_result: ResponseResult::Success(response_result),
+                upstream_name: None,
+                failed_over: None,
             };
         }
     }
@@ -400,8 +445,12 @@ async fn cache_then_upstream(
     let response = forward_to_upstream(request_pool, raw_call).await;
     let duration = start_time.elapsed();
 
-    // TODO: add labels
-    histogram!("upstream_response_latency_seconds").record(duration.as_secs_f64());
+    if let Some(ref upstream_name) = response.upstream_name {
+        histogram!("upstream_response_latency_seconds",
+            "upstream" => upstream_name.clone(),
+        )
+        .record(duration.as_secs_f64());
+    }
 
     if matches!(response.response_source, RESPONSE_SOURCE_UPSTREAM) {
         if let Some(cache_intent) = cache_intent {

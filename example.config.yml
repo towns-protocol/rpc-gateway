@@ -9,6 +9,13 @@ proxy:
 cors:
   allow_any_origin: true
 
+# Load balancing strategy options:
+# - "primary_only": Uses single upstream with highest weight
+# - "failover": Tries upstreams by weight (highest first), fails over on:
+#     - Connection errors and timeouts
+#     - Non-2xx HTTP status codes (e.g., 429, 500, 503)
+#     - Invalid JSON-RPC responses
+#   Note: Valid RPC error responses (e.g., ExecutionError) do NOT trigger failover
 load_balancing:
   strategy: "primary_only"
 
@@ -78,20 +85,24 @@ projects:
 chains:
   1:
     upstreams:
-      - url: "$ALCHEMY_ETH_MAINNET_URL"
+      - name: "alchemy"  # optional, defaults to "generic" if not specified
+        url: "$ALCHEMY_ETH_MAINNET_URL"
         timeout: "10s"
         weight: 1
   8453:
     upstreams:
-      - url: "$ALCHEMY_BASE_MAINNET_URL"
+      - name: "alchemy"
+        url: "$ALCHEMY_BASE_MAINNET_URL"
         timeout: "10s"
         weight: 1
-      # - url: "$INFURA_URL"
+      # - name: "infura"
+      #   url: "$INFURA_URL"
       #   timeout: "10s"
       #   weight: 2
 
   84532:
     upstreams:
-      - url: "$ALCHEMY_BASE_SEPOLIA_URL"
+      - name: "alchemy"
+        url: "$ALCHEMY_BASE_SEPOLIA_URL"
         timeout: "10s"
         weight: 1

@@ -3700,6 +3700,7 @@ dependencies = [
  "alloy-chains",
  "alloy-primitives",
  "bytes",
+ "metrics",
  "rand 0.9.1",
  "reqwest",
  "rpc-gateway-config",

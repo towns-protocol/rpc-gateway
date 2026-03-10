@@ -4,15 +4,26 @@ use duration_str::deserialize_duration;
 use serde::{Deserialize, Serialize};
 use url::Url;
 
+/// Configuration for an upstream RPC endpoint.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UpstreamConfig {
+    /// Optional name for identifying this upstream in metrics and logs. Defaults to "generic".
+    #[serde(default = "default_name")]
+    pub name: String,
+    /// The URL of the upstream RPC endpoint.
     #[serde(with = "url_serde")]
     pub url: Url,
+    /// Request timeout for this upstream. Defaults to 10 seconds.
     #[serde(default = "default_timeout", deserialize_with = "validate_timeout")]
     pub timeout: Duration,
+    /// Weight for load balancing priority. Higher weight means higher priority. Defaults to 1.
     #[serde(default = "default_weight")]
     #[serde(deserialize_with = "validate_weight")]
     pub weight: u32,
+}
+
+fn default_name() -> String {
+    "generic".to_string()
 }
 
 fn default_timeout() -> Duration {
@@ -45,10 +56,16 @@ where
     Ok(value)
 }
 
+/// Trait for processing URL strings before parsing them.
 pub trait UrlProcessor {
+    /// Processes a URL string, potentially expanding environment variables or performing other transformations.
     fn process_url(&self, url_str: &str) -> Result<String, String>;
 }
 
+/// URL processor that expands environment variables in URLs.
+///
+/// Only supports URLs that are entirely an environment variable reference (e.g., `$MY_RPC_URL`).
+/// Embedded variables like `http://$HOST:8080/rpc` are NOT supported and will be passed through as-is.
 #[derive(Debug, Clone)]
 pub struct EnvVarUrlProcessor;
 
@@ -64,6 +81,7 @@ impl UrlProcessor for EnvVarUrlProcessor {
     }
 }
 
+/// Default URL processor that delegates to `EnvVarUrlProcessor`.
 #[derive(Debug, Clone)]
 pub struct DefaultUrlProcessor;
 
