@@ -10,9 +10,12 @@ use tokio::time::sleep;
 use tracing::debug;
 
 /// Tracks upstream health and exposes the healthy set.
+///
+/// Supports dynamic upstream updates via [`HealthCheckManager::update_upstreams`]
+/// for configuration reloading.
 #[derive(Debug)]
 pub struct HealthCheckManager {
-    all_upstreams: NonEmpty<Arc<Upstream>>,
+    all_upstreams: ArcSwap<NonEmpty<Arc<Upstream>>>,
     config: UpstreamHealthChecksConfig,
     healthy_upstreams: ArcSwap<Vec<Arc<Upstream>>>,
 }
@@ -26,14 +29,32 @@ impl HealthCheckManager {
         let initial_healthy: Vec<_> = all_upstreams.iter().cloned().collect();
         Self {
             healthy_upstreams: ArcSwap::from_pointee(initial_healthy),
-            all_upstreams,
+            all_upstreams: ArcSwap::from_pointee(all_upstreams),
             config,
         }
     }
 
+    /// Updates the upstream list with new configuration.
+    ///
+    /// This is called during config reload to update upstream URLs, weights, etc.
+    /// The healthy upstreams set is immediately updated to include all new upstreams,
+    /// assuming they are healthy until the next health check runs.
+    pub fn update_upstreams(&self, new_upstreams: NonEmpty<Arc<Upstream>>) {
+        debug!(
+            upstream_count = new_upstreams.len(),
+            "Updating upstreams for health check manager"
+        );
+
+        // Set new upstreams as initially healthy (same as initial startup behavior)
+        let initial_healthy: Vec<_> = new_upstreams.iter().cloned().collect();
+        self.healthy_upstreams.store(Arc::new(initial_healthy));
+        self.all_upstreams.store(Arc::new(new_upstreams));
+    }
+
     /// Runs readiness probes in parallel and updates healthy set.
     pub async fn run_health_checks_once(&self) {
-        let futures = self.all_upstreams.iter().map(|upstream| {
+        let all_upstreams = self.all_upstreams.load();
+        let futures = all_upstreams.iter().map(|upstream| {
             let upstream = Arc::clone(upstream);
             async move {
                 let is_healthy = upstream.readiness_probe().await;

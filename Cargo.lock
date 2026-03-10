@@ -3665,6 +3665,8 @@ dependencies = [
  "rpc-gateway-rpc",
  "rpc-gateway-upstream",
  "serde_json",
+ "tempfile",
+ "thiserror 2.0.12",
  "tikv-jemallocator",
  "tokio",
  "tokio-util",

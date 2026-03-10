@@ -1,5 +1,6 @@
 use crate::lazy_request::{PreservedMethodCall, PreservedSingleCall};
 use crate::request_pool::{ChainRequestPool, ForwardResult, RequestPoolError};
+use arc_swap::ArcSwap;
 use bytes::Bytes;
 use dashmap::DashMap;
 use futures::FutureExt;
@@ -7,10 +8,10 @@ use futures::future::Shared;
 use metrics::{counter, histogram};
 use rpc_gateway_cache::cache::RpcCache;
 use rpc_gateway_config::{
-    CannedResponseConfig, ChainConfig, ProjectConfig, RequestCoalescingConfig,
+    CannedResponseConfig, ChainConfig, Config, ProjectConfig, RequestCoalescingConfig,
 };
 use rpc_gateway_eth::eth::EthRequest;
-use rpc_gateway_rpc::error::{ErrorCode, RpcError};
+use rpc_gateway_rpc::error::RpcError;
 use rpc_gateway_rpc::request::RpcCall;
 use rpc_gateway_rpc::response::{ResponseResult, RpcResponse};
 use rpc_gateway_upstream::upstream::UpstreamError;
@@ -102,14 +103,17 @@ type BoxedResponseFuture = Pin<Box<dyn Future<Output = ChainHandlerResponse> + S
 type SharedResponseFuture = Shared<BoxedResponseFuture>;
 
 /// Handles RPC requests for a specific blockchain, managing caching, coalescing, and upstream forwarding.
+///
+/// The handler supports dynamic configuration updates via [`ChainHandler::update_config`]
+/// for hot-reloading configuration changes.
 #[derive(Debug)]
 pub struct ChainHandler {
     /// Configuration for this chain.
-    pub chain_config: Arc<ChainConfig>,
+    pub chain_config: ArcSwap<ChainConfig>,
     /// Configuration for request coalescing.
-    pub request_coalescing_config: RequestCoalescingConfig,
+    pub request_coalescing_config: ArcSwap<RequestCoalescingConfig>,
     /// Configuration for canned responses.
-    pub canned_responses_config: CannedResponseConfig,
+    pub canned_responses_config: ArcSwap<CannedResponseConfig>,
     /// Pool for forwarding requests to upstreams.
     pub request_pool: Arc<ChainRequestPool>,
     /// Optional cache for RPC responses.
@@ -133,13 +137,35 @@ impl ChainHandler {
         cache: Option<RpcCache>,
     ) -> Self {
         Self {
-            chain_config: Arc::new(chain_config.clone()),
+            chain_config: ArcSwap::from_pointee(chain_config.clone()),
             request_pool: Arc::new(request_pool),
             cache: cache.map(Arc::new),
-            request_coalescing_config: request_coalescing_config.clone(),
-            canned_responses_config: canned_responses_config.clone(),
+            request_coalescing_config: ArcSwap::from_pointee(request_coalescing_config.clone()),
+            canned_responses_config: ArcSwap::from_pointee(canned_responses_config.clone()),
             in_flight_requests: Arc::new(DashMap::new()),
         }
+    }
+
+    /// Updates the handler's configuration for hot-reloading.
+    ///
+    /// This updates the coalescing and canned response configs. Chain-specific
+    /// config like upstreams should be updated via the load balancer's
+    /// `update_upstreams` method.
+    pub fn update_config(&self, chain_config: &ChainConfig, global_config: &Config) {
+        debug!(
+            chain_id = %chain_config.chain.id(),
+            "Updating chain handler configuration"
+        );
+
+        self.chain_config.store(Arc::new(chain_config.clone()));
+        self.request_coalescing_config
+            .store(Arc::new(global_config.request_coalescing.clone()));
+        self.canned_responses_config
+            .store(Arc::new(global_config.canned_responses.clone()));
+
+        // Update error handling config in request pool
+        self.request_pool
+            .update_error_handling(global_config.error_handling.clone());
     }
 
     /// Handles a single RPC call, returning the response or None for notifications.
@@ -177,7 +203,8 @@ impl ChainHandler {
         call: PreservedMethodCall,
         project_config: &ProjectConfig,
     ) -> RpcResponse {
-        let chain_id = self.chain_config.chain.id().to_string();
+        let chain_config = self.chain_config.load();
+        let chain_id = chain_config.chain.id().to_string();
 
         let start_time = std::time::Instant::now();
 
@@ -239,20 +266,22 @@ impl ChainHandler {
             Err(_) => return None,
         };
 
-        if !self.canned_responses_config.enabled {
+        let canned_config = self.canned_responses_config.load();
+        if !canned_config.enabled {
             return None;
         }
 
+        let chain_config = self.chain_config.load();
         match req {
             EthRequest::Web3ClientVersion { .. }
-                if self.canned_responses_config.methods.web3_client_version =>
+                if canned_config.methods.web3_client_version =>
             {
                 Some(CANNED_RESPONSE_CLIENT_VERSION.clone())
             }
-            EthRequest::EthChainId { .. } if self.canned_responses_config.methods.eth_chain_id => {
+            EthRequest::EthChainId { .. } if canned_config.methods.eth_chain_id => {
                 Some(ResponseResult::Success(serde_json::json!(format!(
                     "0x{:x}",
-                    self.chain_config.chain.id()
+                    chain_config.chain.id()
                 ))))
             }
             // EthRequest::Web3Sha3(bytes) => todo!(), TODO: self-implement
@@ -389,10 +418,8 @@ impl ChainHandler {
 
         let cache_intent = self.get_cache_intent(&req);
 
-        if self
-            .request_coalescing_config
-            .should_coalesce(&call.deserialized.method)
-        {
+        let coalescing_config = self.request_coalescing_config.load();
+        if coalescing_config.should_coalesce(&call.deserialized.method) {
             self.handle_request_with_coalescing(&call, cache_intent)
                 .await
         } else {

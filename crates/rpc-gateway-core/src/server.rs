@@ -100,8 +100,9 @@ async fn handle_rpc_request_with_project(
     let start_time = Instant::now();
     let (project_name, chain_id) = path.into_inner();
 
-    let project_config = match gateway.config.projects.get(&project_name) {
-        Some(project_config) => project_config,
+    let config = gateway.config();
+    let project_config = match config.projects.get(&project_name) {
+        Some(project_config) => project_config.clone(),
         None => {
             track_http_response(
                 chain_id,
@@ -116,8 +117,7 @@ async fn handle_rpc_request_with_project(
             .unwrap();
             return HttpResponse::Ok().body(body);
         }
-    }
-    .clone();
+    };
 
     handle_rpc_request_inner(chain_id, query, body, gateway, project_config, start_time).await
 }
@@ -131,7 +131,8 @@ async fn handle_rpc_request_without_project(
     // TODO: what's the performance impact of these timers? Should we only optionally run them?
     let start_time = Instant::now();
     let chain_id = path.into_inner();
-    let project_config = gateway.config.projects.get("default").unwrap().clone(); // TODO: make this a function on a ProjectsConfig struct.
+    let config = gateway.config();
+    let project_config = config.projects.get("default").unwrap().clone(); // TODO: make this a function on a ProjectsConfig struct.
 
     handle_rpc_request_inner(chain_id, query, body, gateway, project_config, start_time).await
 }

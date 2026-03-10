@@ -1,4 +1,5 @@
 use crate::load_balancer::LoadBalancer;
+use arc_swap::ArcSwap;
 use bytes::Bytes;
 use rpc_gateway_config::ErrorHandlingConfig;
 use rpc_gateway_rpc::response::RpcResponse;
@@ -21,10 +22,11 @@ pub struct ForwardResult {
 /// Manages request forwarding to upstreams for a specific chain.
 ///
 /// Handles upstream selection via the load balancer and implements failover
-/// logic when upstreams fail.
-#[derive(Debug, Clone)]
+/// logic when upstreams fail. Supports dynamic configuration updates via
+/// [`ChainRequestPool::update_error_handling`].
+#[derive(Debug)]
 pub struct ChainRequestPool {
-    error_handling: Arc<ErrorHandlingConfig>,
+    error_handling: ArcSwap<ErrorHandlingConfig>,
     /// The load balancer used to select upstreams for requests.
     pub load_balancer: Arc<dyn LoadBalancer>,
 }
@@ -44,9 +46,15 @@ impl ChainRequestPool {
     /// Creates a new request pool with the given error handling config and load balancer.
     pub fn new(error_handling: ErrorHandlingConfig, load_balancer: Arc<dyn LoadBalancer>) -> Self {
         Self {
-            error_handling: Arc::new(error_handling),
+            error_handling: ArcSwap::from_pointee(error_handling),
             load_balancer,
         }
+    }
+
+    /// Updates the error handling configuration for hot-reloading.
+    pub fn update_error_handling(&self, config: ErrorHandlingConfig) {
+        debug!("Updating error handling configuration");
+        self.error_handling.store(Arc::new(config));
     }
 
     /// Forwards a raw RPC request to an available upstream.
@@ -78,7 +86,8 @@ impl ChainRequestPool {
                 );
             }
 
-            let result = match self.error_handling.as_ref() {
+            let error_handling = self.error_handling.load();
+            let result = match error_handling.as_ref() {
                 ErrorHandlingConfig::Retry {
                     max_retries,
                     retry_delay,

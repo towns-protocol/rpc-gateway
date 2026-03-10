@@ -3,6 +3,7 @@
 
 pub mod chain_handler;
 pub mod cli;
+pub mod config_watcher;
 pub mod cors;
 pub mod gateway;
 pub mod lazy_request;

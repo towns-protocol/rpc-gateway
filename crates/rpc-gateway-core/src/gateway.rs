@@ -1,17 +1,21 @@
 use crate::{lazy_request::PreservedRequest, load_balancer, request_pool::ChainRequestPool};
+use arc_swap::ArcSwap;
 use futures::{
     FutureExt,
     future::{self, join_all},
 };
+use metrics::counter;
 use nonempty::NonEmpty;
-use rpc_gateway_config::{Config, ProjectConfig};
+use rpc_gateway_config::{ChainConfig, Config, ProjectConfig};
 use rpc_gateway_rpc::{
     error::RpcError,
     response::{Response, RpcResponse},
 };
 use rpc_gateway_upstream::upstream::Upstream;
+use std::path::PathBuf;
 use std::{collections::HashMap, sync::Arc};
-use tracing::{debug, warn};
+use thiserror::Error;
+use tracing::{debug, info, warn};
 
 use crate::chain_handler::ChainHandler;
 
@@ -39,58 +43,207 @@ impl GatewayRequest {
     }
 }
 
+/// Errors that can occur during configuration reload.
+#[derive(Debug, Error)]
+pub enum ReloadError {
+    #[error("No config path provided for reload")]
+    NoConfigPath,
+    #[error("Failed to load config: {0}")]
+    ConfigError(String),
+}
+
+impl From<Box<dyn std::error::Error>> for ReloadError {
+    fn from(err: Box<dyn std::error::Error>) -> Self {
+        ReloadError::ConfigError(err.to_string())
+    }
+}
+
+/// The main gateway that routes requests to chain handlers.
+///
+/// The gateway supports dynamic configuration reloading. When the configuration
+/// file changes, call [`Gateway::reload_config`] to apply the new configuration
+/// without restarting the service.
 #[derive(Debug)]
 pub struct Gateway {
-    handlers: HashMap<u64, ChainHandler>,
-    pub config: Config, // TODO: make this private
+    handlers: ArcSwap<HashMap<u64, Arc<ChainHandler>>>,
+    config: ArcSwap<Config>,
+    config_path: Option<PathBuf>,
 }
 
 impl Gateway {
-    // TODO: this should not be async
-    pub async fn new(config: Config) -> Self {
-        let mut handlers = HashMap::new();
+    /// Creates a new gateway with the given configuration.
+    ///
+    /// If `config_path` is provided, the gateway supports dynamic config reloading
+    /// via [`Gateway::reload_config`].
+    pub async fn new(config: Config, config_path: Option<PathBuf>) -> Self {
+        let handlers = Self::build_handlers(&config).await;
 
-        // TODO: make sure this chains hashmap is not empty
-        for (chain_id, chain_config) in &config.chains {
-            let cache = rpc_gateway_cache::cache::from_config(&config.cache, chain_config).await;
-            let upstreams = NonEmpty::from_vec(
-                chain_config
-                    .upstreams
-                    .iter()
-                    .map(|config| Arc::new(Upstream::new(config.clone(), chain_config.chain)))
-                    .collect::<Vec<_>>(),
-            )
-            .expect("Chain config must have at least one upstream");
-            let load_balancer = load_balancer::from_config(
-                config.load_balancing.clone(),
-                config.upstream_health_checks.clone(),
-                upstreams,
-            );
-            let request_pool = ChainRequestPool::new(config.error_handling.clone(), load_balancer);
-            let handler = ChainHandler::new(
-                chain_config,
-                &config.request_coalescing,
-                &config.canned_responses,
-                request_pool,
-                cache,
-            );
-            handlers.insert(chain_id.clone(), handler);
+        Self {
+            handlers: ArcSwap::from_pointee(handlers),
+            config: ArcSwap::from_pointee(config),
+            config_path,
         }
-
-        Self { handlers, config }
     }
 
-    // TODO: this should be called by the task manager. it should be async.
+    /// Builds chain handlers from the configuration.
+    async fn build_handlers(config: &Config) -> HashMap<u64, Arc<ChainHandler>> {
+        let mut handlers = HashMap::new();
+
+        for (chain_id, chain_config) in &config.chains {
+            let handler = Self::build_chain_handler(chain_config, config).await;
+            handlers.insert(*chain_id, Arc::new(handler));
+        }
+
+        handlers
+    }
+
+    /// Builds a single chain handler from chain and global config.
+    async fn build_chain_handler(chain_config: &ChainConfig, config: &Config) -> ChainHandler {
+        let cache = rpc_gateway_cache::cache::from_config(&config.cache, chain_config).await;
+        let upstreams = NonEmpty::from_vec(
+            chain_config
+                .upstreams
+                .iter()
+                .map(|upstream_config| {
+                    Arc::new(Upstream::new(upstream_config.clone(), chain_config.chain))
+                })
+                .collect::<Vec<_>>(),
+        )
+        .expect("Chain config must have at least one upstream");
+
+        let load_balancer = load_balancer::from_config(
+            config.load_balancing.clone(),
+            config.upstream_health_checks.clone(),
+            upstreams,
+        );
+
+        let request_pool = ChainRequestPool::new(config.error_handling.clone(), load_balancer);
+
+        ChainHandler::new(
+            chain_config,
+            &config.request_coalescing,
+            &config.canned_responses,
+            request_pool,
+            cache,
+        )
+    }
+
+    /// Reloads the configuration from the stored config path.
+    ///
+    /// This method:
+    /// 1. Parses the new configuration file
+    /// 2. For existing chains: updates the handler's internal configs
+    /// 3. For new chains: creates new handlers
+    /// 4. For removed chains: removes them from the handlers map
+    ///
+    /// In-flight requests continue using the old configuration until they complete,
+    /// thanks to Arc reference counting.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if no config path was provided or if the config file
+    /// cannot be parsed.
+    pub async fn reload_config(&self) -> Result<(), ReloadError> {
+        let path = self.config_path.as_ref().ok_or(ReloadError::NoConfigPath)?;
+
+        info!(config_path = %path.display(), "Reloading configuration");
+
+        let new_config = Config::from_yaml_path_buf(path)?;
+
+        self.apply_config(new_config).await;
+
+        info!("Configuration reloaded successfully");
+        counter!("config_reload_total", "status" => "success").increment(1);
+
+        Ok(())
+    }
+
+    /// Applies a new configuration to the gateway.
+    ///
+    /// This is the core reload logic that updates handlers based on config changes.
+    async fn apply_config(&self, new_config: Config) {
+        let old_handlers = self.handlers.load();
+        let old_config = self.config.load();
+        let mut new_handlers = HashMap::new();
+
+        for (chain_id, chain_config) in &new_config.chains {
+            if let Some(existing_handler) = old_handlers.get(chain_id) {
+                // Check if this chain's config actually changed
+                let old_chain_config = old_config.chains.get(chain_id);
+                let chain_changed = old_chain_config
+                    .map(|old| !configs_equal(old, chain_config))
+                    .unwrap_or(true);
+
+                let global_changed = !global_configs_equal(&old_config, &new_config);
+
+                if chain_changed || global_changed {
+                    // Config changed - update the handler's internal state
+                    debug!(chain_id = %chain_id, "Updating chain handler config");
+                    existing_handler.update_config(chain_config, &new_config);
+
+                    // Update upstreams if they changed
+                    if chain_changed {
+                        let new_upstreams = NonEmpty::from_vec(
+                            chain_config
+                                .upstreams
+                                .iter()
+                                .map(|upstream_config| {
+                                    Arc::new(Upstream::new(
+                                        upstream_config.clone(),
+                                        chain_config.chain,
+                                    ))
+                                })
+                                .collect::<Vec<_>>(),
+                        )
+                        .expect("Chain config must have at least one upstream");
+
+                        existing_handler
+                            .request_pool
+                            .load_balancer
+                            .get_health_check_manager()
+                            .update_upstreams(new_upstreams);
+                    }
+                }
+
+                new_handlers.insert(*chain_id, Arc::clone(existing_handler));
+            } else {
+                // New chain - create a new handler
+                info!(chain_id = %chain_id, "Adding new chain handler");
+                let handler = Self::build_chain_handler(chain_config, &new_config).await;
+                new_handlers.insert(*chain_id, Arc::new(handler));
+            }
+        }
+
+        // Log removed chains
+        for chain_id in old_handlers.keys() {
+            if !new_config.chains.contains_key(chain_id) {
+                info!(chain_id = %chain_id, "Removing chain handler");
+            }
+        }
+
+        self.handlers.store(Arc::new(new_handlers));
+        self.config.store(Arc::new(new_config));
+    }
+
+    /// Returns a reference to the current configuration.
+    pub fn config(&self) -> Arc<Config> {
+        self.config.load_full()
+    }
+
+    /// Starts the health check loops for all chain handlers.
+    ///
+    /// This method runs indefinitely until cancelled.
     pub async fn start_upstream_health_check_loops(&self) {
-        if !self.config.upstream_health_checks.enabled {
+        let config = self.config.load();
+        if !config.upstream_health_checks.enabled {
             warn!("Upstream health checks are disabled. Not starting health check loops.");
             return;
         }
 
         debug!("Starting upstream health check loops");
 
-        let health_check_futures: Vec<_> = self
-            .handlers
+        let handlers = self.handlers.load();
+        let health_check_futures: Vec<_> = handlers
             .values()
             .map(|handler| {
                 let manager = handler
@@ -106,8 +259,10 @@ impl Gateway {
         join_all(health_check_futures).await;
     }
 
+    /// Runs a single health check for all upstreams across all chains.
     pub async fn run_upstream_health_checks_once(&self) {
-        let futures = self.handlers.values().map(|handler| {
+        let handlers = self.handlers.load();
+        let futures = handlers.values().map(|handler| {
             let manager = handler
                 .request_pool
                 .load_balancer
@@ -121,23 +276,25 @@ impl Gateway {
         join_all(futures).await;
     }
 
+    /// Handles an incoming gateway request.
     pub async fn handle_request(&self, gateway_request: GatewayRequest) -> Option<Response> {
         let is_authorized = gateway_request.project_config.key == gateway_request.key;
 
-        let chain_handler = match self.handlers.get(&gateway_request.chain_id) {
-            Some(chain_handler) => chain_handler,
+        let handlers = self.handlers.load();
+        let chain_handler = match handlers.get(&gateway_request.chain_id) {
+            Some(chain_handler) => Arc::clone(chain_handler),
             None => {
                 let error = Response::error(RpcError::internal_error_with("Chain not supported"));
                 return Some(error);
             }
         };
+        // Drop handlers reference early to avoid holding it during async work
+        drop(handlers);
 
         let project_config = &gateway_request.project_config;
 
         if !is_authorized {
             warn!("Unauthorized request");
-            // TODO: emit a metric for unauthorized requests.
-            // TODO: use better error codes for unauthorized requests.
             let error = Response::error(RpcError::internal_error_with("Unauthorized"));
             return Some(error);
         }
@@ -148,19 +305,47 @@ impl Gateway {
                 .await
                 .map(Response::Single),
             PreservedRequest::Batch(calls) => {
-                future::join_all(
-                    calls
-                        .into_iter()
-                        .map(move |call| chain_handler.handle_call(call, project_config)),
-                )
-                .map(responses_as_batch)
-                .await
+                let project_config = project_config.clone();
+                let futures = calls.into_iter().map(|call| {
+                    let handler = Arc::clone(&chain_handler);
+                    let config = project_config.clone();
+                    async move { handler.handle_call(call, &config).await }
+                });
+                future::join_all(futures).map(responses_as_batch).await
             }
         }
     }
 }
 
-/// processes batch calls
+/// Checks if two chain configs are equal (for reload comparison).
+fn configs_equal(a: &ChainConfig, b: &ChainConfig) -> bool {
+    // Compare upstream URLs and weights
+    if a.upstreams.len() != b.upstreams.len() {
+        return false;
+    }
+
+    for (ua, ub) in a.upstreams.iter().zip(b.upstreams.iter()) {
+        if ua.url != ub.url || ua.weight != ub.weight || ua.timeout != ub.timeout || ua.name != ub.name
+        {
+            return false;
+        }
+    }
+
+    true
+}
+
+/// Checks if global configs that affect chain handlers are equal.
+///
+/// For simplicity, we always return false to trigger updates on any config change.
+/// This is safe because updating unchanged config is a no-op (ArcSwap just stores
+/// the same value).
+fn global_configs_equal(_a: &Config, _b: &Config) -> bool {
+    // Always return false to ensure we update handler configs on any reload.
+    // This is conservative but safe - updating with identical config is a no-op.
+    false
+}
+
+/// Processes batch call responses into a single batch response.
 fn responses_as_batch(outs: Vec<Option<RpcResponse>>) -> Option<Response> {
     let batch: Vec<_> = outs.into_iter().flatten().collect();
     (!batch.is_empty()).then_some(Response::Batch(batch))
