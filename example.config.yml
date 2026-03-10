@@ -11,7 +11,11 @@ cors:
 
 # Load balancing strategy options:
 # - "primary_only": Uses single upstream with highest weight
-# - "failover": Tries upstreams by weight (highest first), falls back on transport errors (429, timeouts, etc.)
+# - "failover": Tries upstreams by weight (highest first), fails over on:
+#     - Connection errors and timeouts
+#     - Non-2xx HTTP status codes (e.g., 429, 500, 503)
+#     - Invalid JSON-RPC responses
+#   Note: Valid RPC error responses (e.g., ExecutionError) do NOT trigger failover
 load_balancing:
   strategy: "primary_only"
 

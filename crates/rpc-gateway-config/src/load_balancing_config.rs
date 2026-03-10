@@ -10,7 +10,7 @@ pub enum LoadBalancingStrategy {
     RoundRobin,
     /// Distributes requests based on upstream weights. (Not yet implemented)
     WeightedOrder,
-    /// Tries upstreams by weight (highest first), failing over to the next on transport errors.
+    /// Tries upstreams by weight (highest first), failing over on connection errors, non-2xx HTTP status, or invalid JSON.
     Failover,
 }
 
