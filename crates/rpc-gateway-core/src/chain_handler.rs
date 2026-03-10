@@ -101,12 +101,18 @@ struct ChainHandlerResponse {
 type BoxedResponseFuture = Pin<Box<dyn Future<Output = ChainHandlerResponse> + Send>>;
 type SharedResponseFuture = Shared<BoxedResponseFuture>;
 
+/// Handles RPC requests for a specific blockchain, managing caching, coalescing, and upstream forwarding.
 #[derive(Debug)]
 pub struct ChainHandler {
+    /// Configuration for this chain.
     pub chain_config: Arc<ChainConfig>,
+    /// Configuration for request coalescing.
     pub request_coalescing_config: RequestCoalescingConfig,
+    /// Configuration for canned responses.
     pub canned_responses_config: CannedResponseConfig,
+    /// Pool for forwarding requests to upstreams.
     pub request_pool: Arc<ChainRequestPool>,
+    /// Optional cache for RPC responses.
     pub cache: Option<Arc<RpcCache>>,
     in_flight_requests: Arc<DashMap<String, SharedResponseFuture>>, // TODO: is there a max size here? what's the limit?
 }
@@ -118,6 +124,7 @@ static CANNED_RESPONSE_CLIENT_VERSION: LazyLock<ResponseResult> = LazyLock::new(
 });
 
 impl ChainHandler {
+    /// Creates a new chain handler with the given configuration.
     pub fn new(
         chain_config: &ChainConfig,
         request_coalescing_config: &RequestCoalescingConfig,
@@ -135,7 +142,7 @@ impl ChainHandler {
         }
     }
 
-    /// handle a single RPC method call
+    /// Handles a single RPC call, returning the response or None for notifications.
     pub async fn handle_call(
         &self,
         call: PreservedSingleCall,

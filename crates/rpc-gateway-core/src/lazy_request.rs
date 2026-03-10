@@ -1,21 +1,30 @@
 use bytes::Bytes;
 use rpc_gateway_rpc::request::{RpcCall, RpcMethodCall};
 
+/// A single RPC call that preserves both the raw bytes and deserialized form.
 #[derive(Debug, PartialEq, Eq)]
 pub struct PreservedSingleCall {
+    /// The raw bytes of the original request.
     pub raw: Bytes,
+    /// The deserialized RPC call.
     pub deserialized: RpcCall,
 }
 
+/// A method call that preserves both the raw bytes and deserialized form.
 #[derive(Debug, PartialEq, Eq)]
 pub struct PreservedMethodCall {
+    /// The raw bytes of the original request.
     pub raw: Bytes,
+    /// The deserialized RPC method call.
     pub deserialized: RpcMethodCall,
 }
 
+/// An RPC request that can be either a single call or a batch of calls.
 #[derive(Debug, PartialEq, Eq)]
 pub enum PreservedRequest {
+    /// A single RPC call.
     Single(PreservedSingleCall),
+    /// A batch of RPC calls.
     Batch(Vec<PreservedSingleCall>),
 }
 

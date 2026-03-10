@@ -7,16 +7,20 @@ use url::Url;
 
 use crate::UpstreamConfig;
 
+/// Configuration for a specific blockchain chain.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ChainConfig {
+    /// The chain identifier (e.g., Ethereum mainnet = 1, Base = 8453).
     #[serde(skip)]
     pub chain: Chain,
+    /// List of upstream RPC endpoints for this chain. Must have at least one.
     #[serde(
         deserialize_with = "deserialize_nonempty_upstreams",
         serialize_with = "serialize_nonempty_upstreams"
     )]
     pub upstreams: NonEmpty<UpstreamConfig>,
 
+    /// Optional block time for this chain, used for cache TTL calculations.
     #[serde(default, deserialize_with = "deserialize_option_duration")]
     pub block_time: Option<Duration>,
 }

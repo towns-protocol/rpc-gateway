@@ -17,6 +17,7 @@ pub struct HealthCheckManager {
 }
 
 impl HealthCheckManager {
+    /// Creates a new health check manager for the given upstreams.
     pub fn new(all_upstreams: NonEmpty<Arc<Upstream>>, config: UpstreamHealthChecksConfig) -> Self {
         Self {
             healthy_upstreams: ArcSwap::from_pointee(vec![]),
@@ -44,6 +45,7 @@ impl HealthCheckManager {
         self.healthy_upstreams.store(Arc::new(healthy));
     }
 
+    /// Starts the background health check loop that periodically probes all upstreams.
     pub async fn start_upstream_health_check_loop(&self) {
         let sleep_duration = self.config.interval;
 
@@ -70,6 +72,7 @@ pub trait LoadBalancer: fmt::Debug + Send + Sync {
     fn select_upstream(&self) -> Option<Arc<Upstream>>;
     /// Returns all healthy upstreams in order for failover scenarios.
     fn select_upstreams(&self) -> Vec<Arc<Upstream>>;
+    /// Returns the health check manager for this load balancer.
     fn get_health_check_manager(&self) -> Arc<HealthCheckManager>;
 }
 
@@ -80,6 +83,7 @@ pub struct PrimaryOnlyLoadBalancer {
 }
 
 impl PrimaryOnlyLoadBalancer {
+    /// Creates a new primary-only load balancer that uses only the highest-weight upstream.
     pub fn new(
         all_upstreams: NonEmpty<Arc<Upstream>>,
         health_checks_config: UpstreamHealthChecksConfig,
@@ -122,6 +126,7 @@ pub struct FailoverLoadBalancer {
 }
 
 impl FailoverLoadBalancer {
+    /// Creates a new failover load balancer that sorts upstreams by weight (highest first).
     pub fn new(
         all_upstreams: NonEmpty<Arc<Upstream>>,
         health_checks_config: UpstreamHealthChecksConfig,
@@ -157,6 +162,9 @@ impl LoadBalancer for FailoverLoadBalancer {
     }
 }
 
+/// Creates a load balancer based on the configured strategy.
+///
+/// Returns the appropriate load balancer implementation for the given strategy.
 pub fn from_config(
     load_balancing_strategy: LoadBalancingStrategy,
     upstream_health_checks_config: UpstreamHealthChecksConfig,

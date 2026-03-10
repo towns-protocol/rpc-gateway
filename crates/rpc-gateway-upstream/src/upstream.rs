@@ -12,18 +12,26 @@ use rpc_gateway_rpc::{
 };
 use tracing::{debug, error, info, instrument, warn};
 
+/// Represents an upstream RPC endpoint that can forward requests.
 #[derive(Debug)]
 pub struct Upstream {
+    /// Configuration for this upstream.
     pub config: UpstreamConfig,
+    /// Current weight used for load balancing (may be decayed).
     pub current_weight: f64,
+    /// The blockchain chain this upstream serves.
     pub chain: Chain,
     client: Client,
 }
 
+/// Errors that can occur when communicating with an upstream.
 #[derive(Debug)]
 pub enum UpstreamError {
+    /// Failed to send the request to the upstream (connection error, timeout, etc.).
     RequestError,
+    /// Upstream returned a non-success HTTP status code (e.g., 429, 500).
     ResponseError,
+    /// Failed to parse the upstream's response as valid JSON-RPC.
     JsonError,
 }
 
@@ -41,6 +49,7 @@ static CHAIN_ID_REQUEST: LazyLock<Bytes> = LazyLock::new(|| {
 });
 
 impl Upstream {
+    /// Creates a new upstream with the given configuration and chain.
     pub fn new(config: UpstreamConfig, chain: Chain) -> Self {
         Self {
             current_weight: config.weight as f64,
@@ -53,19 +62,23 @@ impl Upstream {
         }
     }
 
+    /// Returns the configured name of this upstream.
     #[inline]
     pub fn name(&self) -> &str {
         &self.config.name
     }
 
+    /// Applies a decay factor to the current weight.
     pub fn apply_weight_decay(&mut self, decay: f64) {
         self.current_weight *= decay;
     }
 
+    /// Resets the current weight to the configured weight.
     pub fn reset_weight(&mut self) {
         self.current_weight = self.config.weight as f64;
     }
 
+    /// Performs a health check by sending an eth_chainId request and verifying the response.
     #[instrument(skip(self))]
     pub async fn readiness_probe(&self) -> bool {
         let response = match self.forward_once(&CHAIN_ID_REQUEST).await {
@@ -97,6 +110,7 @@ impl Upstream {
         }
     }
 
+    /// Forwards a single request to this upstream without retries.
     // TODO: do the lazy_request trick but for the response now
     #[instrument(skip(self))]
     pub async fn forward_once(&self, raw_call: &Bytes) -> Result<RpcResponse, UpstreamError> {
@@ -160,6 +174,7 @@ impl Upstream {
         return Ok(rpc_response);
     }
 
+    /// Forwards a request with automatic retries on failure.
     // # TODO: standardize error handling
     #[instrument(skip(self))]
     pub async fn forward_with_retry(

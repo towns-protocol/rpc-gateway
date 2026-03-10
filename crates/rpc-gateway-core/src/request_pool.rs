@@ -6,28 +6,42 @@ use rpc_gateway_upstream::upstream::UpstreamError;
 use std::sync::Arc;
 use tracing::{debug, error, instrument, warn};
 
+/// Result of forwarding a request to an upstream.
 pub struct ForwardResult {
+    /// The RPC response from the upstream.
     pub response: RpcResponse,
+    /// Name of the upstream that handled the request.
     pub upstream_name: String,
+    /// Whether the request was handled by a backup upstream (failover occurred).
     pub failed_over: bool,
 }
 
 // TODO: maybe request coalescing should be done here?
 
+/// Manages request forwarding to upstreams for a specific chain.
+///
+/// Handles upstream selection via the load balancer and implements failover
+/// logic when upstreams fail.
 #[derive(Debug, Clone)]
 pub struct ChainRequestPool {
     error_handling: Arc<ErrorHandlingConfig>,
+    /// The load balancer used to select upstreams for requests.
     pub load_balancer: Arc<dyn LoadBalancer>,
 }
 
+/// Errors that can occur when forwarding requests through the pool.
 #[derive(Debug)]
 pub enum RequestPoolError {
+    /// No healthy upstreams are available to handle the request.
     NoUpstreamsAvailable,
+    /// An error occurred while communicating with an upstream.
     UpstreamError(UpstreamError),
+    /// All upstreams in the failover chain failed to handle the request.
     AllUpstreamsFailed,
 }
 
 impl ChainRequestPool {
+    /// Creates a new request pool with the given error handling config and load balancer.
     pub fn new(error_handling: ErrorHandlingConfig, load_balancer: Arc<dyn LoadBalancer>) -> Self {
         Self {
             error_handling: Arc::new(error_handling),
@@ -35,6 +49,12 @@ impl ChainRequestPool {
         }
     }
 
+    /// Forwards a raw RPC request to an available upstream.
+    ///
+    /// Attempts to forward the request to upstreams in order of priority (as determined
+    /// by the load balancer). If an upstream fails with a transport error (connection
+    /// failure, HTTP 429, etc.), the next upstream is tried. Returns the response from
+    /// the first successful upstream, along with metadata about whether failover occurred.
     #[instrument(skip(self))]
     pub async fn forward_request(&self, raw_call: Bytes) -> Result<ForwardResult, RequestPoolError> {
         let upstreams = self.load_balancer.select_upstreams();
