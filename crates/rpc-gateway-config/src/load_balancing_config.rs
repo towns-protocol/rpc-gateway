@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 
 /// Strategy for selecting upstreams when forwarding requests.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(tag = "strategy", rename_all = "snake_case")]
 pub enum LoadBalancingStrategy {
     /// Uses only the single upstream with the highest weight.

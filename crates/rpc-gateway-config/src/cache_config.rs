@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum CacheConfig {
     Disabled,
@@ -8,7 +8,7 @@ pub enum CacheConfig {
     Local(LocalCacheConfig),
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct RedisCacheConfig {
     #[serde(default = "default_redis_url")]
     pub url: String,
@@ -17,7 +17,7 @@ pub struct RedisCacheConfig {
     pub pool_size: u32,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct LocalCacheConfig {
     #[serde(default = "default_cache_capacity")]
     pub capacity: u64,

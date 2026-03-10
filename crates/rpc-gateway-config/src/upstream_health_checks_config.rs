@@ -3,7 +3,7 @@ use std::time::Duration;
 use duration_str::deserialize_duration;
 use serde::{Deserialize, Deserializer, Serialize};
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct UpstreamHealthChecksConfig {
     #[serde(default = "default_upstream_liveness_enabled")]
     pub enabled: bool,

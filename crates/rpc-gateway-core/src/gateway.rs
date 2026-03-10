@@ -15,6 +15,7 @@ use rpc_gateway_upstream::upstream::Upstream;
 use std::path::PathBuf;
 use std::{collections::HashMap, sync::Arc};
 use thiserror::Error;
+use tokio::sync::Mutex;
 use tracing::{debug, info, warn};
 
 use crate::chain_handler::ChainHandler;
@@ -63,11 +64,13 @@ impl From<Box<dyn std::error::Error>> for ReloadError {
 /// The gateway supports dynamic configuration reloading. When the configuration
 /// file changes, call [`Gateway::reload_config`] to apply the new configuration
 /// without restarting the service.
-#[derive(Debug)]
 pub struct Gateway {
     handlers: ArcSwap<HashMap<u64, Arc<ChainHandler>>>,
     config: ArcSwap<Config>,
     config_path: Option<PathBuf>,
+    /// Mutex to serialize config reloads, preventing interleaved stores that could
+    /// leave handlers and config on different generations.
+    reload_mutex: Mutex<()>,
 }
 
 impl Gateway {
@@ -85,6 +88,7 @@ impl Gateway {
             handlers: ArcSwap::from_pointee(handlers),
             config: ArcSwap::from_pointee(config),
             config_path,
+            reload_mutex: Mutex::new(()),
         }
     }
 
@@ -135,18 +139,24 @@ impl Gateway {
     ///
     /// This method:
     /// 1. Parses the new configuration file
-    /// 2. For existing chains: updates the handler's internal configs
+    /// 2. For existing chains: rebuilds handlers with new config
     /// 3. For new chains: creates new handlers
     /// 4. For removed chains: removes them from the handlers map
     ///
     /// In-flight requests continue using the old configuration until they complete,
     /// thanks to Arc reference counting.
     ///
+    /// Concurrent calls to this method are serialized to prevent interleaved stores
+    /// that could leave handlers and config on different generations.
+    ///
     /// # Errors
     ///
     /// Returns an error if no config path was provided or if the config file
     /// cannot be parsed.
     pub async fn reload_config(&self) -> Result<(), ReloadError> {
+        // Serialize reloads to prevent interleaved stores
+        let _guard = self.reload_mutex.lock().await;
+
         let path = self.config_path.as_ref().ok_or(ReloadError::NoConfigPath)?;
 
         info!(config_path = %path.display(), "Reloading configuration");
@@ -333,14 +343,23 @@ fn configs_equal(a: &ChainConfig, b: &ChainConfig) -> bool {
 
 /// Checks if global configs that affect chain handlers are equal.
 ///
-/// For simplicity, we always return false to trigger updates on any config change.
-/// This ensures changes to load_balancing, error_handling, cache, request_coalescing,
-/// and canned_responses are always picked up.
-fn global_configs_equal(_a: &Config, _b: &Config) -> bool {
-    // Always return false to ensure we rebuild handlers on any global config change.
-    // This is conservative but safe - rebuilding with identical config just creates
-    // an equivalent handler.
-    false
+/// Compares only the config sections that affect ChainHandler behavior:
+/// - load_balancing: affects how requests are routed to upstreams
+/// - error_handling: affects retry/failover behavior
+/// - cache: affects response caching
+/// - request_coalescing: affects request deduplication
+/// - canned_responses: affects which responses are generated locally
+/// - upstream_health_checks: affects health check behavior
+///
+/// Note: Changes to server, cors, metrics, logging, or projects do NOT
+/// require rebuilding chain handlers.
+fn global_configs_equal(a: &Config, b: &Config) -> bool {
+    a.load_balancing == b.load_balancing
+        && a.error_handling == b.error_handling
+        && a.cache == b.cache
+        && a.request_coalescing == b.request_coalescing
+        && a.canned_responses == b.canned_responses
+        && a.upstream_health_checks == b.upstream_health_checks
 }
 
 /// Processes batch call responses into a single batch response.
