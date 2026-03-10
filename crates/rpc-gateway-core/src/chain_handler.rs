@@ -114,10 +114,11 @@ pub struct ChainHandler {
     pub request_coalescing_config: ArcSwap<RequestCoalescingConfig>,
     /// Configuration for canned responses.
     pub canned_responses_config: ArcSwap<CannedResponseConfig>,
-    /// Pool for forwarding requests to upstreams.
-    pub request_pool: Arc<ChainRequestPool>,
-    /// Optional cache for RPC responses.
-    pub cache: Option<Arc<RpcCache>>,
+    /// Pool for forwarding requests to upstreams. Wrapped in ArcSwap to support
+    /// hot-reload of load balancer strategy and upstream configuration.
+    request_pool: ArcSwap<ChainRequestPool>,
+    /// Optional cache for RPC responses. Wrapped in ArcSwap for hot-reload support.
+    cache: ArcSwap<Option<Arc<RpcCache>>>,
     in_flight_requests: Arc<DashMap<String, SharedResponseFuture>>, // TODO: is there a max size here? what's the limit?
 }
 use std::sync::LazyLock;
@@ -138,8 +139,8 @@ impl ChainHandler {
     ) -> Self {
         Self {
             chain_config: ArcSwap::from_pointee(chain_config.clone()),
-            request_pool: Arc::new(request_pool),
-            cache: cache.map(Arc::new),
+            request_pool: ArcSwap::from_pointee(request_pool),
+            cache: ArcSwap::from_pointee(cache.map(Arc::new)),
             request_coalescing_config: ArcSwap::from_pointee(request_coalescing_config.clone()),
             canned_responses_config: ArcSwap::from_pointee(canned_responses_config.clone()),
             in_flight_requests: Arc::new(DashMap::new()),
@@ -148,9 +149,8 @@ impl ChainHandler {
 
     /// Updates the handler's configuration for hot-reloading.
     ///
-    /// This updates the coalescing and canned response configs. Chain-specific
-    /// config like upstreams should be updated via the load balancer's
-    /// `update_upstreams` method.
+    /// This updates the coalescing and canned response configs.
+    /// For load balancer/upstream changes, use [`ChainHandler::update_request_pool`].
     pub fn update_config(&self, chain_config: &ChainConfig, global_config: &Config) {
         debug!(
             chain_id = %chain_config.chain.id(),
@@ -162,10 +162,30 @@ impl ChainHandler {
             .store(Arc::new(global_config.request_coalescing.clone()));
         self.canned_responses_config
             .store(Arc::new(global_config.canned_responses.clone()));
+    }
 
-        // Update error handling config in request pool
-        self.request_pool
-            .update_error_handling(global_config.error_handling.clone());
+    /// Updates the request pool (load balancer + error handling) for hot-reloading.
+    ///
+    /// This is called when load balancing strategy, upstreams, or error handling
+    /// configuration changes. The entire request pool is rebuilt to ensure the
+    /// load balancer is properly initialized with the new configuration.
+    pub fn update_request_pool(&self, request_pool: ChainRequestPool) {
+        debug!("Updating chain handler request pool");
+        self.request_pool.store(Arc::new(request_pool));
+    }
+
+    /// Returns a reference to the current request pool for health check access.
+    pub fn get_request_pool(&self) -> arc_swap::Guard<Arc<ChainRequestPool>> {
+        self.request_pool.load()
+    }
+
+    /// Updates the cache instance for hot-reloading.
+    ///
+    /// This allows cache configuration changes (like enabling/disabling cache,
+    /// or changing cache type) to take effect without restart.
+    pub fn update_cache(&self, cache: Option<RpcCache>) {
+        debug!("Updating chain handler cache");
+        self.cache.store(Arc::new(cache.map(Arc::new)));
     }
 
     /// Handles a single RPC call, returning the response or None for notifications.
@@ -230,6 +250,10 @@ impl ChainHandler {
             Some(false) => "false",
             None => "n/a",
         };
+        let upstream = chain_handler_response
+            .upstream_name
+            .as_deref()
+            .unwrap_or("n/a");
 
         counter!("method_call_response_total",
           "chain_id" => chain_id.clone(),
@@ -238,6 +262,7 @@ impl ChainHandler {
           "response_source" => source,
           "gateway_project" => project_config.name.clone(), // TODO: this should come from the span
           "failed_over" => failed_over,
+          "upstream" => upstream.to_string(),
         )
         .increment(1);
 
@@ -251,6 +276,7 @@ impl ChainHandler {
           "response_success" => success,
           "response_source" => source,
           "gateway_project" => project_config.name.clone(),
+          "upstream" => upstream.to_string(),
         )
         .record(duration.as_secs_f64());
 
@@ -309,7 +335,7 @@ impl ChainHandler {
             match self.in_flight_requests.entry(coalescing_key.clone()) {
                 dashmap::Entry::Occupied(e) => (e.get().clone(), true),
                 dashmap::Entry::Vacant(e) => {
-                    let request_pool = self.request_pool.clone();
+                    let request_pool = Arc::clone(&self.request_pool.load());
                     let raw_call = call.raw.clone();
                     let inner_fut: Shared<
                         Pin<Box<dyn Future<Output = ChainHandlerResponse> + Send>>,
@@ -352,7 +378,8 @@ impl ChainHandler {
 
     #[inline]
     fn get_cache_intent(&self, req: &Result<EthRequest, serde_json::Error>) -> Option<CacheIntent> {
-        let cache = match &self.cache {
+        let cache_opt = self.cache.load();
+        let cache = match cache_opt.as_ref() {
             Some(cache) => cache,
             None => return None,
         };
@@ -365,7 +392,7 @@ impl ChainHandler {
             }
         };
 
-        let ttl = cache.get_ttl(&req)?;
+        let ttl = cache.get_ttl(req)?;
         let key = req.get_key();
 
         // TODO: missed oppotrunity: if the request is coalescable, but not cacheable, we'd be forcing the
@@ -374,7 +401,7 @@ impl ChainHandler {
         Some(CacheIntent {
             key,
             ttl,
-            cache: cache.clone(),
+            cache: Arc::clone(cache),
         })
     }
 
@@ -425,7 +452,8 @@ impl ChainHandler {
             self.handle_request_with_coalescing(&call, cache_intent)
                 .await
         } else {
-            cache_then_upstream(self.request_pool.clone(), call.raw.clone(), cache_intent).await
+            let request_pool = Arc::clone(&self.request_pool.load());
+            cache_then_upstream(request_pool, call.raw.clone(), cache_intent).await
         }
     }
 }

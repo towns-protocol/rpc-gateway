@@ -53,8 +53,13 @@ impl HealthCheckManager {
     }
 
     /// Runs readiness probes in parallel and updates healthy set.
+    ///
+    /// Uses pointer comparison to detect if upstreams were updated during the health check.
+    /// If the upstream set changed (e.g., via `update_upstreams`), the results are discarded
+    /// to prevent stale/removed upstreams from being written back to the healthy set.
     pub async fn run_health_checks_once(&self) {
-        let all_upstreams = self.all_upstreams.load();
+        // Load the current upstream set - use load_full() to get an owned Arc for comparison
+        let all_upstreams = self.all_upstreams.load_full();
         let futures = all_upstreams.iter().map(|upstream| {
             let upstream = Arc::clone(upstream);
             async move {
@@ -69,7 +74,14 @@ impl HealthCheckManager {
             .filter_map(|(upstream, is_healthy)| is_healthy.then_some(upstream))
             .collect();
 
-        self.healthy_upstreams.store(Arc::new(healthy));
+        // Only store results if the upstream set hasn't changed during the health check.
+        // This prevents a race where update_upstreams() runs mid-check, and we'd overwrite
+        // the new healthy set with stale results (potentially including removed upstreams).
+        if Arc::ptr_eq(&all_upstreams, &self.all_upstreams.load_full()) {
+            self.healthy_upstreams.store(Arc::new(healthy));
+        } else {
+            debug!("Discarding stale health-check results after upstream update");
+        }
     }
 
     /// Starts the background health check loop that periodically probes all upstreams.

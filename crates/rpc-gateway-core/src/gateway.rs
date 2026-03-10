@@ -4,9 +4,11 @@ use futures::{
     FutureExt,
     future::{self, join_all},
 };
-use metrics::counter;
+use metrics::{counter, gauge};
 use nonempty::NonEmpty;
-use rpc_gateway_config::{ChainConfig, Config, ProjectConfig};
+use rpc_gateway_config::{
+    CacheConfig, ChainConfig, Config, ErrorHandlingConfig, LoadBalancingStrategy, ProjectConfig,
+};
 use rpc_gateway_rpc::{
     error::RpcError,
     response::{Response, RpcResponse},
@@ -77,6 +79,9 @@ impl Gateway {
     /// via [`Gateway::reload_config`].
     pub async fn new(config: Config, config_path: Option<PathBuf>) -> Self {
         let handlers = Self::build_handlers(&config).await;
+
+        // Emit initial upstream weight metrics
+        emit_upstream_weight_metrics(&config);
 
         Self {
             handlers: ArcSwap::from_pointee(handlers),
@@ -181,8 +186,17 @@ impl Gateway {
                     debug!(chain_id = %chain_id, "Updating chain handler config");
                     existing_handler.update_config(chain_config, &new_config);
 
-                    // Update upstreams if they changed
-                    if chain_changed {
+                    // Check if we need to rebuild the load balancer/request pool
+                    // This is required when:
+                    // - Upstreams changed (URLs, weights, timeouts, names)
+                    // - Load balancing strategy changed
+                    // - Error handling config changed
+                    let routing_changed = chain_changed
+                        || !load_balancing_configs_equal(&old_config, &new_config)
+                        || !error_handling_configs_equal(&old_config, &new_config);
+
+                    if routing_changed {
+                        debug!(chain_id = %chain_id, "Rebuilding request pool for chain handler");
                         let new_upstreams = NonEmpty::from_vec(
                             chain_config
                                 .upstreams
@@ -197,11 +211,33 @@ impl Gateway {
                         )
                         .expect("Chain config must have at least one upstream");
 
-                        existing_handler
-                            .request_pool
-                            .load_balancer
-                            .get_health_check_manager()
-                            .update_upstreams(new_upstreams);
+                        let load_balancer = load_balancer::from_config(
+                            new_config.load_balancing.clone(),
+                            new_config.upstream_health_checks.clone(),
+                            new_upstreams,
+                        );
+
+                        let request_pool = ChainRequestPool::new(
+                            new_config.error_handling.clone(),
+                            load_balancer,
+                        );
+
+                        existing_handler.update_request_pool(request_pool);
+                    }
+
+                    // Rebuild cache if cache config or block_time changed
+                    // (block_time affects TTL calculations)
+                    let cache_changed = !cache_configs_equal(&old_config, &new_config)
+                        || old_chain_config
+                            .map(|old| old.block_time != chain_config.block_time)
+                            .unwrap_or(true);
+
+                    if cache_changed {
+                        debug!(chain_id = %chain_id, "Rebuilding cache for chain handler");
+                        let new_cache =
+                            rpc_gateway_cache::cache::from_config(&new_config.cache, chain_config)
+                                .await;
+                        existing_handler.update_cache(new_cache);
                     }
                 }
 
@@ -222,7 +258,10 @@ impl Gateway {
         }
 
         self.handlers.store(Arc::new(new_handlers));
-        self.config.store(Arc::new(new_config));
+        self.config.store(Arc::new(new_config.clone()));
+
+        // Update upstream weight metrics after config reload
+        emit_upstream_weight_metrics(&new_config);
     }
 
     /// Returns a reference to the current configuration.
@@ -263,10 +302,8 @@ impl Gateway {
     pub async fn run_upstream_health_checks_once(&self) {
         let handlers = self.handlers.load();
         let futures = handlers.values().map(|handler| {
-            let manager = handler
-                .request_pool
-                .load_balancer
-                .get_health_check_manager();
+            let request_pool = handler.get_request_pool();
+            let manager = request_pool.load_balancer.get_health_check_manager();
 
             async move {
                 manager.run_health_checks_once().await;
@@ -350,8 +387,84 @@ fn global_configs_equal(_a: &Config, _b: &Config) -> bool {
     false
 }
 
+/// Checks if cache configs are equal (for determining whether to rebuild cache).
+fn cache_configs_equal(a: &Config, b: &Config) -> bool {
+    match (&a.cache, &b.cache) {
+        (CacheConfig::Disabled, CacheConfig::Disabled) => true,
+        (CacheConfig::Local(a), CacheConfig::Local(b)) => a.capacity == b.capacity,
+        (CacheConfig::Redis(a), CacheConfig::Redis(b)) => {
+            a.url == b.url && a.key_prefix == b.key_prefix && a.pool_size == b.pool_size
+        }
+        _ => false, // Different cache types
+    }
+}
+
+/// Checks if load balancing configs are equal (for determining whether to rebuild load balancer).
+fn load_balancing_configs_equal(a: &Config, b: &Config) -> bool {
+    match (&a.load_balancing, &b.load_balancing) {
+        (LoadBalancingStrategy::PrimaryOnly, LoadBalancingStrategy::PrimaryOnly) => true,
+        (LoadBalancingStrategy::Failover, LoadBalancingStrategy::Failover) => true,
+        (LoadBalancingStrategy::RoundRobin, LoadBalancingStrategy::RoundRobin) => true,
+        (
+            LoadBalancingStrategy::WeightedOrder { fallback_order: a },
+            LoadBalancingStrategy::WeightedOrder { fallback_order: b },
+        ) => a == b,
+        _ => false, // Different strategies
+    }
+}
+
+/// Checks if error handling configs are equal (for determining whether to rebuild request pool).
+fn error_handling_configs_equal(a: &Config, b: &Config) -> bool {
+    match (&a.error_handling, &b.error_handling) {
+        (ErrorHandlingConfig::FailFast, ErrorHandlingConfig::FailFast) => true,
+        (
+            ErrorHandlingConfig::Retry {
+                max_retries: a_retries,
+                retry_delay: a_delay,
+                jitter: a_jitter,
+            },
+            ErrorHandlingConfig::Retry {
+                max_retries: b_retries,
+                retry_delay: b_delay,
+                jitter: b_jitter,
+            },
+        ) => a_retries == b_retries && a_delay == b_delay && a_jitter == b_jitter,
+        (
+            ErrorHandlingConfig::CircuitBreaker {
+                failure_threshold: a_threshold,
+                reset_timeout: a_timeout,
+                half_open_requests: a_requests,
+            },
+            ErrorHandlingConfig::CircuitBreaker {
+                failure_threshold: b_threshold,
+                reset_timeout: b_timeout,
+                half_open_requests: b_requests,
+            },
+        ) => a_threshold == b_threshold && a_timeout == b_timeout && a_requests == b_requests,
+        _ => false, // Different error handling types
+    }
+}
+
 /// Processes batch call responses into a single batch response.
 fn responses_as_batch(outs: Vec<Option<RpcResponse>>) -> Option<Response> {
     let batch: Vec<_> = outs.into_iter().flatten().collect();
     (!batch.is_empty()).then_some(Response::Batch(batch))
+}
+
+/// Emits gauge metrics for all configured upstream weights.
+///
+/// This allows observing the configured weight distribution (e.g., 10/90 split)
+/// alongside the actual traffic distribution from request counters.
+fn emit_upstream_weight_metrics(config: &Config) {
+    for (chain_id, chain_config) in &config.chains {
+        let chain_id_str = chain_id.to_string();
+        for upstream in &chain_config.upstreams {
+            gauge!(
+                "upstream_configured_weight",
+                "chain_id" => chain_id_str.clone(),
+                "upstream" => upstream.name.clone(),
+            )
+            .set(upstream.weight as f64);
+        }
+    }
 }
