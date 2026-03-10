@@ -141,7 +141,63 @@ curl -X POST http://localhost:8080/1 \
 
 ### Load Balancing
 
-- `strategy`: Load balancing strategy ("primary_only", "round_robin", "weighted")
+Configure how requests are distributed across upstream providers:
+
+```yaml
+load_balancing:
+  strategy: "weighted_order"
+  fallback_order: ["backup-rpc"]  # optional, for weighted_order only
+```
+
+**Available strategies:**
+
+| Strategy | Description |
+|----------|-------------|
+| `primary_only` | Uses only the single upstream with the highest weight. Simple and predictable. |
+| `failover` | Tries upstreams by weight (highest first), failing over on connection errors, HTTP errors (e.g., 429), or invalid JSON responses. |
+| `weighted_order` | Distributes traffic proportionally based on weights, with configurable failover. |
+
+#### Failover Strategy
+
+Routes all traffic to the highest-weight upstream. If it fails, tries the next highest, and so on.
+
+```yaml
+load_balancing:
+  strategy: "failover"
+
+chains:
+  1:
+    upstreams:
+      - name: "primary"
+        url: "$PRIMARY_RPC"
+        weight: 100  # Tried first
+      - name: "backup"
+        url: "$BACKUP_RPC"
+        weight: 50   # Tried if primary fails
+```
+
+#### Weighted Order Strategy
+
+Distributes traffic proportionally based on weights. For example, with weights [10, 90], approximately 10% of traffic goes to the first upstream and 90% to the second.
+
+```yaml
+load_balancing:
+  strategy: "weighted_order"
+  fallback_order: ["backup-rpc"]  # Optional: explicit failover order
+
+chains:
+  1:
+    upstreams:
+      - name: "main-rpc"
+        url: "$MAIN_RPC"
+        weight: 10   # ~10% of traffic
+      - name: "backup-rpc"
+        url: "$BACKUP_RPC"
+        weight: 90   # ~90% of traffic
+```
+
+**Options:**
+- `fallback_order`: List of upstream names specifying failover priority. If omitted, falls back to other upstreams in descending weight order.
 
 ### Upstream Health Checks
 

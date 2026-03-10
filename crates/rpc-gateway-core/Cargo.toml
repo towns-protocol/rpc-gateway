@@ -23,6 +23,7 @@ futures.workspace = true
 metrics = "0.24.2"
 metrics-exporter-prometheus = "0.17.0"
 nonempty.workspace = true
+rand.workspace = true
 rpc-gateway-config.workspace = true
 rpc-gateway-cache.workspace = true
 rpc-gateway-eth.workspace = true

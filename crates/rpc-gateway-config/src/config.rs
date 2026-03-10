@@ -330,7 +330,7 @@ chains:
         assert_eq!(config.server.port, 8080);
         assert!(matches!(
             config.load_balancing,
-            LoadBalancingStrategy::WeightedOrder
+            LoadBalancingStrategy::WeightedOrder { .. }
         ));
         assert!(matches!(
             config.error_handling,

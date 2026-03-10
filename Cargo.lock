@@ -3658,6 +3658,7 @@ dependencies = [
  "metrics",
  "metrics-exporter-prometheus",
  "nonempty",
+ "rand 0.9.1",
  "rpc-gateway-cache",
  "rpc-gateway-config",
  "rpc-gateway-eth",
