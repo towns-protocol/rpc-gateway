@@ -111,6 +111,8 @@ impl LoadBalancer for PrimaryOnlyLoadBalancer {
     }
 
     fn select_upstreams(&self) -> Vec<Arc<Upstream>> {
+        // No sorting needed: PrimaryOnlyLoadBalancer is initialized with only
+        // a single upstream (the highest-weight one), so there's at most one element.
         self.health_check_manager.healthy_upstreams().to_vec()
     }
 

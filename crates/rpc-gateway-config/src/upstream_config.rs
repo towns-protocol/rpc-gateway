@@ -62,7 +62,10 @@ pub trait UrlProcessor {
     fn process_url(&self, url_str: &str) -> Result<String, String>;
 }
 
-/// URL processor that expands environment variables in URLs (e.g., "$MY_VAR" -> value of MY_VAR).
+/// URL processor that expands environment variables in URLs.
+///
+/// Only supports URLs that are entirely an environment variable reference (e.g., `$MY_RPC_URL`).
+/// Embedded variables like `http://$HOST:8080/rpc` are NOT supported and will be passed through as-is.
 #[derive(Debug, Clone)]
 pub struct EnvVarUrlProcessor;
 
