@@ -230,9 +230,11 @@ impl Gateway {
         self.config.load_full()
     }
 
-    /// Starts the health check loops for all chain handlers.
+    /// Starts the health check loop that periodically checks all chain handlers.
     ///
-    /// This method runs indefinitely until cancelled.
+    /// This method runs indefinitely until cancelled. Unlike per-handler loops,
+    /// this dynamically observes the current set of handlers, so newly added
+    /// chains get health-checked and removed chains stop being checked.
     pub async fn start_upstream_health_check_loops(&self) {
         let config = self.config.load();
         if !config.upstream_health_checks.enabled {
@@ -240,23 +242,21 @@ impl Gateway {
             return;
         }
 
-        debug!("Starting upstream health check loops");
+        let interval = config.upstream_health_checks.interval;
+        debug!("Starting dynamic health check loop with interval {:?}", interval);
 
-        let handlers = self.handlers.load();
-        let health_check_futures: Vec<_> = handlers
-            .values()
-            .map(|handler| {
-                let manager = handler
-                    .request_pool
-                    .load_balancer
-                    .get_health_check_manager();
-                async move {
-                    manager.start_upstream_health_check_loop().await;
-                }
-            })
-            .collect();
+        // Run first health check immediately
+        self.run_upstream_health_checks_once().await;
 
-        join_all(health_check_futures).await;
+        // Continuously check health at the configured interval
+        loop {
+            tokio::time::sleep(interval).await;
+            self.run_upstream_health_checks_once().await;
+            debug!(
+                "Health check loop completed, sleeping for {} seconds",
+                interval.as_secs()
+            );
+        }
     }
 
     /// Runs a single health check for all upstreams across all chains.
@@ -319,6 +319,11 @@ impl Gateway {
 
 /// Checks if two chain configs are equal (for reload comparison).
 fn configs_equal(a: &ChainConfig, b: &ChainConfig) -> bool {
+    // Compare block_time (affects cache TTL calculations)
+    if a.block_time != b.block_time {
+        return false;
+    }
+
     // Compare upstream URLs and weights
     if a.upstreams.len() != b.upstreams.len() {
         return false;

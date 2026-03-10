@@ -12,9 +12,9 @@ use tracing::{debug, error, info, warn};
 
 /// Watches a configuration file for changes using polling and sends reload notifications.
 ///
-/// The watcher periodically checks the file's modification time and content hash
-/// to detect changes. This approach is simple and works reliably with Kubernetes
-/// ConfigMaps which update files via symlink replacement.
+/// The watcher periodically checks the file's modification time to detect changes.
+/// This approach is simple and works reliably with Kubernetes ConfigMaps which
+/// update files via symlink replacement.
 #[derive(Debug)]
 pub struct ConfigWatcher {
     config_path: PathBuf,
@@ -55,7 +55,7 @@ impl ConfigWatcher {
     pub async fn watch(&self, reload_tx: mpsc::Sender<()>) {
         info!(
             config_path = %self.config_path.display(),
-            poll_interval_secs = self.poll_interval.as_secs(),
+            poll_interval_ms = self.poll_interval.as_millis(),
             "Starting config file watcher (polling)"
         );
 
@@ -70,18 +70,30 @@ impl ConfigWatcher {
             match (&last_modified, &current_modified) {
                 (Some(last), Some(current)) if current > last => {
                     info!("Config file changed, triggering reload");
-                    if reload_tx.send(()).await.is_err() {
-                        error!("Reload channel closed, stopping config watcher");
-                        break;
+                    match reload_tx.try_send(()) {
+                        Ok(()) => {}
+                        Err(mpsc::error::TrySendError::Full(_)) => {
+                            debug!("Reload channel full, skipping notification (reload already pending)");
+                        }
+                        Err(mpsc::error::TrySendError::Closed(_)) => {
+                            error!("Reload channel closed, stopping config watcher");
+                            break;
+                        }
                     }
                     last_modified = current_modified;
                 }
                 (None, Some(_)) => {
                     // File appeared (was missing before)
                     info!("Config file appeared, triggering reload");
-                    if reload_tx.send(()).await.is_err() {
-                        error!("Reload channel closed, stopping config watcher");
-                        break;
+                    match reload_tx.try_send(()) {
+                        Ok(()) => {}
+                        Err(mpsc::error::TrySendError::Full(_)) => {
+                            debug!("Reload channel full, skipping notification (reload already pending)");
+                        }
+                        Err(mpsc::error::TrySendError::Closed(_)) => {
+                            error!("Reload channel closed, stopping config watcher");
+                            break;
+                        }
                     }
                     last_modified = current_modified;
                 }

@@ -45,10 +45,11 @@ impl HealthCheckManager {
             "Updating upstreams for health check manager"
         );
 
-        // Set new upstreams as initially healthy (same as initial startup behavior)
+        // Store all_upstreams first (the superset), then healthy_upstreams (the subset)
+        // This ensures conceptual consistency during the update
         let initial_healthy: Vec<_> = new_upstreams.iter().cloned().collect();
-        self.healthy_upstreams.store(Arc::new(initial_healthy));
         self.all_upstreams.store(Arc::new(new_upstreams));
+        self.healthy_upstreams.store(Arc::new(initial_healthy));
     }
 
     /// Runs readiness probes in parallel and updates healthy set.

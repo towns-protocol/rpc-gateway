@@ -71,6 +71,10 @@ impl ChainRequestPool {
             return Err(RequestPoolError::NoUpstreamsAvailable);
         }
 
+        // Load error_handling once before the loop so all upstreams in the failover chain
+        // use consistent retry/failover behavior for this request
+        let error_handling = self.error_handling.load();
+
         let mut last_error: Option<UpstreamError> = None;
         let mut attempted_failover = false;
 
@@ -86,7 +90,6 @@ impl ChainRequestPool {
                 );
             }
 
-            let error_handling = self.error_handling.load();
             let result = match error_handling.as_ref() {
                 ErrorHandlingConfig::Retry {
                     max_retries,

@@ -257,9 +257,10 @@ impl ChainHandler {
         RpcResponse::new(call.deserialized.id, response_result)
     }
 
-    async fn try_canned_response(
+    fn try_canned_response(
         &self,
         req: &Result<EthRequest, serde_json::Error>,
+        chain_config: &ChainConfig,
     ) -> Option<ResponseResult> {
         let req = match req {
             Ok(req) => req,
@@ -271,7 +272,6 @@ impl ChainHandler {
             return None;
         }
 
-        let chain_config = self.chain_config.load();
         match req {
             EthRequest::Web3ClientVersion { .. }
                 if canned_config.methods.web3_client_version =>
@@ -406,7 +406,9 @@ impl ChainHandler {
         // TODO: add this back
         // self.track_eth_call_requests(&req, project_config);
 
-        if let Some(response_result) = self.try_canned_response(&req).await {
+        // Load chain_config once for use in canned responses
+        let chain_config = self.chain_config.load();
+        if let Some(response_result) = self.try_canned_response(&req, &chain_config) {
             // TODO: may want to cache canned responses if they are expensive to generate
             return ChainHandlerResponse {
                 response_source: RESPONSE_SOURCE_CANNED,

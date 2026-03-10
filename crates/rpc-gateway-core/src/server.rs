@@ -132,7 +132,25 @@ async fn handle_rpc_request_without_project(
     let start_time = Instant::now();
     let chain_id = path.into_inner();
     let config = gateway.config();
-    let project_config = config.projects.get("default").unwrap().clone(); // TODO: make this a function on a ProjectsConfig struct.
+
+    let project_config = match config.projects.get("default") {
+        Some(project_config) => project_config.clone(),
+        None => {
+            warn!("Default project not found in configuration");
+            track_http_response(
+                chain_id,
+                &"unknown".to_string(),
+                "default_project_missing",
+                start_time,
+            );
+
+            let body = serde_json::to_string(&Response::error(RpcError::internal_error_with(
+                "Default project not configured",
+            )))
+            .unwrap();
+            return HttpResponse::InternalServerError().body(body);
+        }
+    };
 
     handle_rpc_request_inner(chain_id, query, body, gateway, project_config, start_time).await
 }

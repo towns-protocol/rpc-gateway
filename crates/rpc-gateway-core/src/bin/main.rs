@@ -77,15 +77,23 @@ async fn main() {
                     debug!("Stopping reload handler");
                     break;
                 }
-                Some(()) = reload_rx.recv() => {
-                    info!("Config change detected, reloading...");
-                    match gateway_clone.reload_config().await {
-                        Ok(()) => {
-                            info!("Configuration reloaded successfully");
+                result = reload_rx.recv() => {
+                    match result {
+                        Some(()) => {
+                            info!("Config change detected, reloading...");
+                            match gateway_clone.reload_config().await {
+                                Ok(()) => {
+                                    info!("Configuration reloaded successfully");
+                                }
+                                Err(e) => {
+                                    error!(error = %e, "Failed to reload configuration");
+                                    counter!("config_reload_total", "status" => "error").increment(1);
+                                }
+                            }
                         }
-                        Err(e) => {
-                            error!(error = %e, "Failed to reload configuration");
-                            counter!("config_reload_total", "status" => "error").increment(1);
+                        None => {
+                            debug!("Reload channel closed, stopping reload handler");
+                            break;
                         }
                     }
                 }
