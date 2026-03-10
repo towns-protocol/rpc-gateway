@@ -52,14 +52,16 @@ static CHAIN_ID_REQUEST: LazyLock<Bytes> = LazyLock::new(|| {
 impl Upstream {
     /// Creates a new upstream with the given configuration and chain.
     pub fn new(config: UpstreamConfig, chain: Chain) -> Self {
+        let client = Client::builder()
+            .timeout(config.timeout)
+            .build()
+            .unwrap();
+
         Self {
             current_weight: config.weight as f64,
             config,
             chain,
-            client: Client::builder()
-                .timeout(Duration::from_secs(2)) // TODO: make this configurable
-                .build()
-                .unwrap(),
+            client,
         }
     }
 

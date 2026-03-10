@@ -55,7 +55,7 @@ impl ChainRequestPool {
     /// by the load balancer). Each upstream is given its full retry budget (based on the
     /// error_handling config) before failing over to the next upstream. Returns the response
     /// from the first successful upstream, along with metadata about whether failover occurred.
-    #[instrument(skip(self))]
+    #[instrument(skip(self, raw_call))]
     pub async fn forward_request(&self, raw_call: Bytes) -> Result<ForwardResult, RequestPoolError> {
         let upstreams = self.load_balancer.select_upstreams();
         if upstreams.is_empty() {
@@ -90,8 +90,10 @@ impl ChainRequestPool {
                 }
                 ErrorHandlingConfig::FailFast => upstream.forward_once(&raw_call).await,
                 ErrorHandlingConfig::CircuitBreaker { .. } => {
-                    // TODO: implement circuit breaker logic
-                    upstream.forward_once(&raw_call).await
+                    unimplemented!(
+                        "CircuitBreaker error handling is not yet implemented. \
+                         Use 'fail_fast' or 'retry' instead."
+                    )
                 }
             };
 

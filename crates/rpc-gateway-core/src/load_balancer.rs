@@ -49,6 +49,9 @@ impl HealthCheckManager {
     pub async fn start_upstream_health_check_loop(&self) {
         let sleep_duration = self.config.interval;
 
+        // Run first health check immediately to populate healthy upstreams
+        self.run_health_checks_once().await;
+
         // TODO: consider adding the chain here to help with debugging
         loop {
             sleep(sleep_duration).await;
