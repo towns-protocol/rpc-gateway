@@ -9,6 +9,9 @@ proxy:
 cors:
   allow_any_origin: true
 
+# Load balancing strategy options:
+# - "primary_only": Uses single upstream with highest weight
+# - "failover": Tries upstreams by weight (highest first), falls back on transport errors (429, timeouts, etc.)
 load_balancing:
   strategy: "primary_only"
 

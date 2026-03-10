@@ -9,6 +9,7 @@ use tracing::{debug, error, instrument, warn};
 pub struct ForwardResult {
     pub response: RpcResponse,
     pub upstream_name: String,
+    pub failed_over: bool,
 }
 
 // TODO: maybe request coalescing should be done here?
@@ -23,6 +24,7 @@ pub struct ChainRequestPool {
 pub enum RequestPoolError {
     NoUpstreamsAvailable,
     UpstreamError(UpstreamError),
+    AllUpstreamsFailed,
 }
 
 impl ChainRequestPool {
@@ -35,51 +37,46 @@ impl ChainRequestPool {
 
     #[instrument(skip(self))]
     pub async fn forward_request(&self, raw_call: Bytes) -> Result<ForwardResult, RequestPoolError> {
-        let upstream = match self.load_balancer.select_upstream() {
-            Some(upstream) => upstream,
-            None => {
-                error!("no upstreams available");
-                return Err(RequestPoolError::NoUpstreamsAvailable);
-            }
-        };
-        let upstream_name = upstream.name().to_string();
-        let response = match &*self.error_handling {
-            ErrorHandlingConfig::Retry {
-                max_retries,
-                retry_delay,
-                jitter,
-            } => {
+        let upstreams = self.load_balancer.select_upstreams();
+        if upstreams.is_empty() {
+            error!("no upstreams available");
+            return Err(RequestPoolError::NoUpstreamsAvailable);
+        }
+
+        let primary_name = upstreams[0].name();
+
+        // Try each upstream in order until one succeeds
+        for upstream in &upstreams {
+            let is_failover = upstream.name() != primary_name;
+
+            if is_failover {
                 debug!(
-                    max_retries = %max_retries,
-                    retry_delay = ?retry_delay,
-                    jitter = %jitter,
-                    "Using retry strategy"
+                    upstream = %upstream.name(),
+                    "Failing over to backup upstream"
                 );
-                upstream
-                    .forward_with_retry(&raw_call, *max_retries, *retry_delay, *jitter)
-                    .await
-                    .map_err(|err| RequestPoolError::UpstreamError(err))?
             }
-            ErrorHandlingConfig::FailFast { .. } => {
-                debug!("Using fail-fast strategy");
-                upstream
-                    .forward_once(&raw_call)
-                    .await
-                    .map_err(|err| RequestPoolError::UpstreamError(err))?
+
+            match upstream.forward_once(&raw_call).await {
+                Ok(response) => {
+                    return Ok(ForwardResult {
+                        response,
+                        upstream_name: upstream.name().to_string(),
+                        failed_over: is_failover,
+                    });
+                }
+                Err(e) => {
+                    warn!(
+                        upstream = %upstream.name(),
+                        error = ?e,
+                        "Upstream failed, trying next"
+                    );
+                    continue;
+                }
             }
-            ErrorHandlingConfig::CircuitBreaker { .. } => {
-                warn!(
-                    "Circuit breaker strategy not yet implemented, falling back to single attempt"
-                );
-                upstream
-                    .forward_once(&raw_call)
-                    .await
-                    .map_err(|err| RequestPoolError::UpstreamError(err))?
-            }
-        };
-        Ok(ForwardResult {
-            response,
-            upstream_name,
-        })
+        }
+
+        // All upstreams failed
+        error!("All upstreams in failover chain failed");
+        Err(RequestPoolError::AllUpstreamsFailed)
     }
 }

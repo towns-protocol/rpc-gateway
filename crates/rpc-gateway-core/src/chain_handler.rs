@@ -36,6 +36,7 @@ impl From<RequestPoolError> for ChainHandlerResponse {
                     "No upstreams available",
                 )),
                 upstream_name: None,
+                failed_over: None,
             },
             RequestPoolError::UpstreamError(UpstreamError::RequestError) => ChainHandlerResponse {
                 response_source: RESPONSE_SOURCE_PRE_UPSTREAM_ERROR,
@@ -43,6 +44,7 @@ impl From<RequestPoolError> for ChainHandlerResponse {
                     "Could not forward request to upstream",
                 )),
                 upstream_name: None,
+                failed_over: None,
             },
             RequestPoolError::UpstreamError(UpstreamError::ResponseError) => ChainHandlerResponse {
                 response_source: RESPONSE_SOURCE_UPSTREAM,
@@ -50,6 +52,7 @@ impl From<RequestPoolError> for ChainHandlerResponse {
                     "Upstream response error",
                 )),
                 upstream_name: None,
+                failed_over: None,
             },
             RequestPoolError::UpstreamError(UpstreamError::JsonError) => ChainHandlerResponse {
                 response_source: RESPONSE_SOURCE_UPSTREAM,
@@ -57,6 +60,15 @@ impl From<RequestPoolError> for ChainHandlerResponse {
                     "Upstream response json parsing error",
                 )),
                 upstream_name: None,
+                failed_over: None,
+            },
+            RequestPoolError::AllUpstreamsFailed => ChainHandlerResponse {
+                response_source: RESPONSE_SOURCE_PRE_UPSTREAM_ERROR,
+                response_result: ResponseResult::Error(RpcError::internal_error_with(
+                    "All upstreams failed",
+                )),
+                upstream_name: None,
+                failed_over: Some(true),
             },
         }
     }
@@ -83,6 +95,7 @@ struct ChainHandlerResponse {
     response_source: &'static str,
     response_result: ResponseResult,
     upstream_name: Option<String>,
+    failed_over: Option<bool>,
 }
 
 type BoxedResponseFuture = Pin<Box<dyn Future<Output = ChainHandlerResponse> + Send>>;
@@ -178,6 +191,11 @@ impl ChainHandler {
             ResponseResult::Success(_) => "true",
             ResponseResult::Error(_) => "false",
         };
+        let failed_over = match chain_handler_response.failed_over {
+            Some(true) => "true",
+            Some(false) => "false",
+            None => "n/a",
+        };
 
         counter!("method_call_response_total",
           "chain_id" => chain_id.clone(),
@@ -185,6 +203,7 @@ impl ChainHandler {
           "response_success" => success,
           "response_source" => source,
           "gateway_project" => project_config.name.clone(), // TODO: this should come from the span
+          "failed_over" => failed_over,
         )
         .increment(1);
 
@@ -288,6 +307,7 @@ impl ChainHandler {
                 response_source: RESPONSE_SOURCE_COALESCED,
                 response_result: result.response_result,
                 upstream_name: result.upstream_name,
+                failed_over: result.failed_over,
             };
         }
 
@@ -331,6 +351,7 @@ impl ChainHandler {
                 response_source: RESPONSE_SOURCE_UNSUPPORTED,
                 response_result: ResponseResult::Error(RpcError::method_not_found()), // TODO: this should technically be an unsupported method error
                 upstream_name: None,
+                failed_over: None,
             })
         } else {
             None
@@ -355,6 +376,7 @@ impl ChainHandler {
                 response_source: RESPONSE_SOURCE_CANNED,
                 response_result,
                 upstream_name: None,
+                failed_over: None,
             };
         }
 
@@ -383,11 +405,13 @@ async fn forward_to_upstream(
         Ok(ForwardResult {
             response,
             upstream_name,
+            failed_over,
         }) => {
             return ChainHandlerResponse {
                 response_source: RESPONSE_SOURCE_UPSTREAM,
                 response_result: response.result,
                 upstream_name: Some(upstream_name),
+                failed_over: Some(failed_over),
             };
         }
         Err(e) => ChainHandlerResponse::from(e),
@@ -405,6 +429,7 @@ async fn cache_then_upstream(
                 response_source: RESPONSE_SOURCE_CACHED,
                 response_result: ResponseResult::Success(response_result),
                 upstream_name: None,
+                failed_over: None,
             };
         }
     }

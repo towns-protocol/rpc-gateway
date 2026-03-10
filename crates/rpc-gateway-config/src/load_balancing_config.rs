@@ -6,6 +6,7 @@ pub enum LoadBalancingStrategy {
     PrimaryOnly,
     RoundRobin,
     WeightedOrder,
+    Failover,
 }
 
 impl Default for LoadBalancingStrategy {

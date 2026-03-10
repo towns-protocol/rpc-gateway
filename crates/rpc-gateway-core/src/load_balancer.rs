@@ -66,7 +66,10 @@ impl HealthCheckManager {
 
 /// A basic load balancer interface.
 pub trait LoadBalancer: fmt::Debug + Send + Sync {
+    /// Returns a single upstream (the first/primary one).
     fn select_upstream(&self) -> Option<Arc<Upstream>>;
+    /// Returns all healthy upstreams in order for failover scenarios.
+    fn select_upstreams(&self) -> Vec<Arc<Upstream>>;
     fn get_health_check_manager(&self) -> Arc<HealthCheckManager>;
 }
 
@@ -100,8 +103,53 @@ impl PrimaryOnlyLoadBalancer {
 
 impl LoadBalancer for PrimaryOnlyLoadBalancer {
     fn select_upstream(&self) -> Option<Arc<Upstream>> {
-        let upstreams = self.health_check_manager.healthy_upstreams();
-        upstreams.first().cloned()
+        self.select_upstreams().into_iter().next()
+    }
+
+    fn select_upstreams(&self) -> Vec<Arc<Upstream>> {
+        self.health_check_manager.healthy_upstreams().to_vec()
+    }
+
+    fn get_health_check_manager(&self) -> Arc<HealthCheckManager> {
+        Arc::clone(&self.health_check_manager)
+    }
+}
+
+/// Balancer that tries upstreams by weight (highest first), failing over to the next on error.
+#[derive(Debug, Clone)]
+pub struct FailoverLoadBalancer {
+    health_check_manager: Arc<HealthCheckManager>,
+}
+
+impl FailoverLoadBalancer {
+    pub fn new(
+        all_upstreams: NonEmpty<Arc<Upstream>>,
+        health_checks_config: UpstreamHealthChecksConfig,
+    ) -> Self {
+        // Sort upstreams by weight (highest first) for failover priority
+        let mut sorted: Vec<_> = all_upstreams.into_iter().collect();
+        sorted.sort_by(|a, b| b.config.weight.cmp(&a.config.weight));
+        let sorted_upstreams =
+            NonEmpty::from_vec(sorted).expect("NonEmpty should have at least one upstream");
+
+        let manager = Arc::new(HealthCheckManager::new(
+            sorted_upstreams,
+            health_checks_config,
+        ));
+        Self {
+            health_check_manager: manager,
+        }
+    }
+}
+
+impl LoadBalancer for FailoverLoadBalancer {
+    fn select_upstream(&self) -> Option<Arc<Upstream>> {
+        self.select_upstreams().into_iter().next()
+    }
+
+    fn select_upstreams(&self) -> Vec<Arc<Upstream>> {
+        // Return healthy upstreams sorted by weight (highest first)
+        self.health_check_manager.healthy_upstreams().to_vec()
     }
 
     fn get_health_check_manager(&self) -> Arc<HealthCheckManager> {
@@ -116,6 +164,10 @@ pub fn from_config(
 ) -> Arc<dyn LoadBalancer> {
     match load_balancing_strategy {
         LoadBalancingStrategy::PrimaryOnly => Arc::new(PrimaryOnlyLoadBalancer::new(
+            all_upstreams,
+            upstream_health_checks_config,
+        )),
+        LoadBalancingStrategy::Failover => Arc::new(FailoverLoadBalancer::new(
             all_upstreams,
             upstream_health_checks_config,
         )),
