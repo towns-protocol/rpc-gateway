@@ -6,9 +6,7 @@ use futures::{
 };
 use metrics::{counter, gauge};
 use nonempty::NonEmpty;
-use rpc_gateway_config::{
-    CacheConfig, ChainConfig, Config, ErrorHandlingConfig, LoadBalancingStrategy, ProjectConfig,
-};
+use rpc_gateway_config::{ChainConfig, Config, ProjectConfig};
 use rpc_gateway_rpc::{
     error::RpcError,
     response::{Response, RpcResponse},
@@ -166,13 +164,15 @@ impl Gateway {
     /// Applies a new configuration to the gateway.
     ///
     /// This is the core reload logic that updates handlers based on config changes.
+    /// For changed chains, we build a completely new handler and swap the Arc atomically
+    /// to ensure requests never see inconsistent state (e.g., new config with old pool).
     async fn apply_config(&self, new_config: Config) {
         let old_handlers = self.handlers.load();
         let old_config = self.config.load();
         let mut new_handlers = HashMap::new();
 
         for (chain_id, chain_config) in &new_config.chains {
-            if let Some(existing_handler) = old_handlers.get(chain_id) {
+            if let Some(_existing_handler) = old_handlers.get(chain_id) {
                 // Check if this chain's config actually changed
                 let old_chain_config = old_config.chains.get(chain_id);
                 let chain_changed = old_chain_config
@@ -182,66 +182,15 @@ impl Gateway {
                 let global_changed = !global_configs_equal(&old_config, &new_config);
 
                 if chain_changed || global_changed {
-                    // Config changed - update the handler's internal state
-                    debug!(chain_id = %chain_id, "Updating chain handler config");
-                    existing_handler.update_config(chain_config, &new_config);
-
-                    // Check if we need to rebuild the load balancer/request pool
-                    // This is required when:
-                    // - Upstreams changed (URLs, weights, timeouts, names)
-                    // - Load balancing strategy changed
-                    // - Error handling config changed
-                    let routing_changed = chain_changed
-                        || !load_balancing_configs_equal(&old_config, &new_config)
-                        || !error_handling_configs_equal(&old_config, &new_config);
-
-                    if routing_changed {
-                        debug!(chain_id = %chain_id, "Rebuilding request pool for chain handler");
-                        let new_upstreams = NonEmpty::from_vec(
-                            chain_config
-                                .upstreams
-                                .iter()
-                                .map(|upstream_config| {
-                                    Arc::new(Upstream::new(
-                                        upstream_config.clone(),
-                                        chain_config.chain,
-                                    ))
-                                })
-                                .collect::<Vec<_>>(),
-                        )
-                        .expect("Chain config must have at least one upstream");
-
-                        let load_balancer = load_balancer::from_config(
-                            new_config.load_balancing.clone(),
-                            new_config.upstream_health_checks.clone(),
-                            new_upstreams,
-                        );
-
-                        let request_pool = ChainRequestPool::new(
-                            new_config.error_handling.clone(),
-                            load_balancer,
-                        );
-
-                        existing_handler.update_request_pool(request_pool);
-                    }
-
-                    // Rebuild cache if cache config or block_time changed
-                    // (block_time affects TTL calculations)
-                    let cache_changed = !cache_configs_equal(&old_config, &new_config)
-                        || old_chain_config
-                            .map(|old| old.block_time != chain_config.block_time)
-                            .unwrap_or(true);
-
-                    if cache_changed {
-                        debug!(chain_id = %chain_id, "Rebuilding cache for chain handler");
-                        let new_cache =
-                            rpc_gateway_cache::cache::from_config(&new_config.cache, chain_config)
-                                .await;
-                        existing_handler.update_cache(new_cache);
-                    }
+                    // Config changed - build a completely new handler atomically
+                    // This ensures requests never see inconsistent state (e.g., new config with old pool)
+                    debug!(chain_id = %chain_id, "Rebuilding chain handler for config change");
+                    let handler = Self::build_chain_handler(chain_config, &new_config).await;
+                    new_handlers.insert(*chain_id, Arc::new(handler));
+                } else {
+                    // No changes - reuse existing handler
+                    new_handlers.insert(*chain_id, Arc::clone(_existing_handler));
                 }
-
-                new_handlers.insert(*chain_id, Arc::clone(existing_handler));
             } else {
                 // New chain - create a new handler
                 info!(chain_id = %chain_id, "Adding new chain handler");
@@ -355,19 +304,25 @@ impl Gateway {
 }
 
 /// Checks if two chain configs are equal (for reload comparison).
+///
+/// Compares all fields that affect handler behavior: block_time (cache TTL),
+/// and upstream configuration (URLs, weights, timeouts, names).
 fn configs_equal(a: &ChainConfig, b: &ChainConfig) -> bool {
     // Compare block_time (affects cache TTL calculations)
     if a.block_time != b.block_time {
         return false;
     }
 
-    // Compare upstream URLs and weights
+    // Compare upstream configuration
     if a.upstreams.len() != b.upstreams.len() {
         return false;
     }
 
     for (ua, ub) in a.upstreams.iter().zip(b.upstreams.iter()) {
-        if ua.url != ub.url || ua.weight != ub.weight || ua.timeout != ub.timeout || ua.name != ub.name
+        if ua.url != ub.url
+            || ua.weight != ub.weight
+            || ua.timeout != ub.timeout
+            || ua.name != ub.name
         {
             return false;
         }
@@ -379,70 +334,13 @@ fn configs_equal(a: &ChainConfig, b: &ChainConfig) -> bool {
 /// Checks if global configs that affect chain handlers are equal.
 ///
 /// For simplicity, we always return false to trigger updates on any config change.
-/// This is safe because updating unchanged config is a no-op (ArcSwap just stores
-/// the same value).
+/// This ensures changes to load_balancing, error_handling, cache, request_coalescing,
+/// and canned_responses are always picked up.
 fn global_configs_equal(_a: &Config, _b: &Config) -> bool {
-    // Always return false to ensure we update handler configs on any reload.
-    // This is conservative but safe - updating with identical config is a no-op.
+    // Always return false to ensure we rebuild handlers on any global config change.
+    // This is conservative but safe - rebuilding with identical config just creates
+    // an equivalent handler.
     false
-}
-
-/// Checks if cache configs are equal (for determining whether to rebuild cache).
-fn cache_configs_equal(a: &Config, b: &Config) -> bool {
-    match (&a.cache, &b.cache) {
-        (CacheConfig::Disabled, CacheConfig::Disabled) => true,
-        (CacheConfig::Local(a), CacheConfig::Local(b)) => a.capacity == b.capacity,
-        (CacheConfig::Redis(a), CacheConfig::Redis(b)) => {
-            a.url == b.url && a.key_prefix == b.key_prefix && a.pool_size == b.pool_size
-        }
-        _ => false, // Different cache types
-    }
-}
-
-/// Checks if load balancing configs are equal (for determining whether to rebuild load balancer).
-fn load_balancing_configs_equal(a: &Config, b: &Config) -> bool {
-    match (&a.load_balancing, &b.load_balancing) {
-        (LoadBalancingStrategy::PrimaryOnly, LoadBalancingStrategy::PrimaryOnly) => true,
-        (LoadBalancingStrategy::Failover, LoadBalancingStrategy::Failover) => true,
-        (LoadBalancingStrategy::RoundRobin, LoadBalancingStrategy::RoundRobin) => true,
-        (
-            LoadBalancingStrategy::WeightedOrder { fallback_order: a },
-            LoadBalancingStrategy::WeightedOrder { fallback_order: b },
-        ) => a == b,
-        _ => false, // Different strategies
-    }
-}
-
-/// Checks if error handling configs are equal (for determining whether to rebuild request pool).
-fn error_handling_configs_equal(a: &Config, b: &Config) -> bool {
-    match (&a.error_handling, &b.error_handling) {
-        (ErrorHandlingConfig::FailFast, ErrorHandlingConfig::FailFast) => true,
-        (
-            ErrorHandlingConfig::Retry {
-                max_retries: a_retries,
-                retry_delay: a_delay,
-                jitter: a_jitter,
-            },
-            ErrorHandlingConfig::Retry {
-                max_retries: b_retries,
-                retry_delay: b_delay,
-                jitter: b_jitter,
-            },
-        ) => a_retries == b_retries && a_delay == b_delay && a_jitter == b_jitter,
-        (
-            ErrorHandlingConfig::CircuitBreaker {
-                failure_threshold: a_threshold,
-                reset_timeout: a_timeout,
-                half_open_requests: a_requests,
-            },
-            ErrorHandlingConfig::CircuitBreaker {
-                failure_threshold: b_threshold,
-                reset_timeout: b_timeout,
-                half_open_requests: b_requests,
-            },
-        ) => a_threshold == b_threshold && a_timeout == b_timeout && a_requests == b_requests,
-        _ => false, // Different error handling types
-    }
 }
 
 /// Processes batch call responses into a single batch response.
