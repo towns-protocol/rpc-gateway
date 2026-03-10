@@ -2623,9 +2623,9 @@ checksum = "830d08ce1d1d941e6b30645f1a0eb5643013d835ce3779a5fc208261dbe10f55"
 
 [[package]]
 name = "libc"
-version = "0.2.171"
+version = "0.2.183"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c19937216e9d3aa9956d9bb8dfc0b0c8beb6058fc4f7a4dc4d850edf86a237d6"
+checksum = "b5b646652bf6661599e1da8901b3b9522896f01e736bad5f723fe7a3a27f899d"
 
 [[package]]
 name = "libloading"
@@ -2651,9 +2651,9 @@ checksum = "d26c52dbd32dccf2d10cac7725f8eae5296885fb5703b261f7d0a0739ec807ab"
 
 [[package]]
 name = "linux-raw-sys"
-version = "0.9.3"
+version = "0.12.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fe7db12097d22ec582439daf8618b8fdd1a7bef6270e9af3b1ebcd30893cf413"
+checksum = "32a66949e030da00e8c7d4434b251670a91556f4144941d37452769c25d58a53"
 
 [[package]]
 name = "litemap"
@@ -3665,6 +3665,8 @@ dependencies = [
  "rpc-gateway-rpc",
  "rpc-gateway-upstream",
  "serde_json",
+ "tempfile",
+ "thiserror 2.0.12",
  "tikv-jemallocator",
  "tokio",
  "tokio-util",
@@ -3813,14 +3815,14 @@ dependencies = [
 
 [[package]]
 name = "rustix"
-version = "1.0.5"
+version = "1.1.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d97817398dd4bb2e6da002002db259209759911da105da92bec29ccb12cf58bf"
+checksum = "b6fe4565b9518b83ef4f91bb47ce29620ca828bd32cb7e408f0062e9930ba190"
 dependencies = [
  "bitflags",
  "errno",
  "libc",
- "linux-raw-sys 0.9.3",
+ "linux-raw-sys 0.12.1",
  "windows-sys 0.59.0",
 ]
 
@@ -4417,14 +4419,14 @@ checksum = "55937e1799185b12863d447f42597ed69d9928686b8d88a1df17376a097d8369"
 
 [[package]]
 name = "tempfile"
-version = "3.19.1"
+version = "3.26.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7437ac7763b9b123ccf33c338a5cc1bac6f69b45a136c19bdd8a65e3916435bf"
+checksum = "82a72c767771b47409d2345987fda8628641887d5466101319899796367354a0"
 dependencies = [
  "fastrand",
  "getrandom 0.3.2",
  "once_cell",
- "rustix 1.0.5",
+ "rustix 1.1.4",
  "windows-sys 0.59.0",
 ]
 

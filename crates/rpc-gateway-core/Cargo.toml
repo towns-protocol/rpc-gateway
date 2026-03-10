@@ -39,6 +39,7 @@ bytes.workspace = true
 tikv-jemallocator = { version = "0.6.0", features = [
   "unprefixed_malloc_on_supported_platforms",
 ] }
+thiserror.workspace = true
 
 [[bin]]
 name = "rpc-gateway"
@@ -46,3 +47,6 @@ path = "src/bin/main.rs"
 
 [lib]
 path = "src/lib.rs"
+
+[dev-dependencies]
+tempfile = "3.26.0"

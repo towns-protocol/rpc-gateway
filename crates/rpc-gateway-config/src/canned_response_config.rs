@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct CannedResponseConfig {
     #[serde(default = "default_canned_responses_enabled")]
     pub enabled: bool,
@@ -8,7 +8,7 @@ pub struct CannedResponseConfig {
     pub methods: CannedResponseMethods,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct CannedResponseMethods {
     #[serde(default = "default_web3_client_version_enabled")]
     pub web3_client_version: bool,
