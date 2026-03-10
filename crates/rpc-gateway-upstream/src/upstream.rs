@@ -10,6 +10,7 @@ use rpc_gateway_rpc::{
     error::ErrorCode,
     response::{ResponseResult, RpcResponse},
 };
+use metrics::counter;
 use tracing::{debug, error, info, instrument, warn};
 
 /// Represents an upstream RPC endpoint that can forward requests.
@@ -127,6 +128,13 @@ impl Upstream {
             .await
             .map_err(|e| {
                 error!(?e, error_source = ?e.source(), "upstream request error");
+                counter!(
+                    "upstream_error_total",
+                    "upstream" => self.config.name.clone(),
+                    "error_type" => "request_error",
+                    "http_status" => "n/a"
+                )
+                .increment(1);
                 UpstreamError::RequestError
             })?;
 
@@ -134,17 +142,38 @@ impl Upstream {
 
         if !status.is_success() {
             error!(status = ?status, "upstream response error");
+            counter!(
+                "upstream_error_total",
+                "upstream" => self.config.name.clone(),
+                "error_type" => "response_error",
+                "http_status" => status.as_u16().to_string()
+            )
+            .increment(1);
             return Err(UpstreamError::ResponseError);
         }
 
         // TODO: rebuild your own RpcResponse type. need to be able to access the .result field.
         let rpc_response = raw_response.bytes().await.map_err(|e| {
             error!(?e, status = ?status, error_source = ?e.source(), "upstream response error");
+            counter!(
+                "upstream_error_total",
+                "upstream" => self.config.name.clone(),
+                "error_type" => "response_error",
+                "http_status" => status.as_u16().to_string()
+            )
+            .increment(1);
             UpstreamError::ResponseError
         })?;
 
         let rpc_response = serde_json::from_slice::<RpcResponse>(&rpc_response).map_err(|e| {
             error!(?e, status = ?status, error_source = ?e.source(), bytes_response = ?rpc_response, "upstream response json error");
+            counter!(
+                "upstream_error_total",
+                "upstream" => self.config.name.clone(),
+                "error_type" => "json_error",
+                "http_status" => status.as_u16().to_string()
+            )
+            .increment(1);
             UpstreamError::JsonError
         })?;
 
