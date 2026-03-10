@@ -43,6 +43,7 @@ impl Default for ChainConfig {
         Self {
             chain: Chain::from_id(1),
             upstreams: NonEmpty::new(UpstreamConfig {
+                name: "generic".to_string(),
                 url: Url::parse("http://example.com").unwrap(),
                 timeout: Duration::from_secs(10),
                 weight: 1,

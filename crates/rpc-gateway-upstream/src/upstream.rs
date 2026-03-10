@@ -53,6 +53,11 @@ impl Upstream {
         }
     }
 
+    #[inline]
+    pub fn name(&self) -> &str {
+        &self.config.name
+    }
+
     pub fn apply_weight_decay(&mut self, decay: f64) {
         self.current_weight *= decay;
     }

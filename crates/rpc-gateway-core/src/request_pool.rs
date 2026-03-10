@@ -6,6 +6,11 @@ use rpc_gateway_upstream::upstream::UpstreamError;
 use std::sync::Arc;
 use tracing::{debug, error, instrument, warn};
 
+pub struct ForwardResult {
+    pub response: RpcResponse,
+    pub upstream_name: String,
+}
+
 // TODO: maybe request coalescing should be done here?
 
 #[derive(Debug, Clone)]
@@ -29,7 +34,7 @@ impl ChainRequestPool {
     }
 
     #[instrument(skip(self))]
-    pub async fn forward_request(&self, raw_call: Bytes) -> Result<RpcResponse, RequestPoolError> {
+    pub async fn forward_request(&self, raw_call: Bytes) -> Result<ForwardResult, RequestPoolError> {
         let upstream = match self.load_balancer.select_upstream() {
             Some(upstream) => upstream,
             None => {
@@ -37,7 +42,8 @@ impl ChainRequestPool {
                 return Err(RequestPoolError::NoUpstreamsAvailable);
             }
         };
-        match &*self.error_handling {
+        let upstream_name = upstream.name().to_string();
+        let response = match &*self.error_handling {
             ErrorHandlingConfig::Retry {
                 max_retries,
                 retry_delay,
@@ -52,14 +58,14 @@ impl ChainRequestPool {
                 upstream
                     .forward_with_retry(&raw_call, *max_retries, *retry_delay, *jitter)
                     .await
-                    .map_err(|err| RequestPoolError::UpstreamError(err))
+                    .map_err(|err| RequestPoolError::UpstreamError(err))?
             }
             ErrorHandlingConfig::FailFast { .. } => {
                 debug!("Using fail-fast strategy");
                 upstream
                     .forward_once(&raw_call)
                     .await
-                    .map_err(|err| RequestPoolError::UpstreamError(err))
+                    .map_err(|err| RequestPoolError::UpstreamError(err))?
             }
             ErrorHandlingConfig::CircuitBreaker { .. } => {
                 warn!(
@@ -68,8 +74,12 @@ impl ChainRequestPool {
                 upstream
                     .forward_once(&raw_call)
                     .await
-                    .map_err(|err| RequestPoolError::UpstreamError(err))
+                    .map_err(|err| RequestPoolError::UpstreamError(err))?
             }
-        }
+        };
+        Ok(ForwardResult {
+            response,
+            upstream_name,
+        })
     }
 }

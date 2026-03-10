@@ -6,6 +6,8 @@ use url::Url;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UpstreamConfig {
+    #[serde(default = "default_name")]
+    pub name: String,
     #[serde(with = "url_serde")]
     pub url: Url,
     #[serde(default = "default_timeout", deserialize_with = "validate_timeout")]
@@ -13,6 +15,10 @@ pub struct UpstreamConfig {
     #[serde(default = "default_weight")]
     #[serde(deserialize_with = "validate_weight")]
     pub weight: u32,
+}
+
+fn default_name() -> String {
+    "generic".to_string()
 }
 
 fn default_timeout() -> Duration {

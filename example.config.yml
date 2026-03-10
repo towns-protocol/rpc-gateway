@@ -78,20 +78,24 @@ projects:
 chains:
   1:
     upstreams:
-      - url: "$ALCHEMY_ETH_MAINNET_URL"
+      - name: "alchemy"  # optional, defaults to "generic" if not specified
+        url: "$ALCHEMY_ETH_MAINNET_URL"
         timeout: "10s"
         weight: 1
   8453:
     upstreams:
-      - url: "$ALCHEMY_BASE_MAINNET_URL"
+      - name: "alchemy"
+        url: "$ALCHEMY_BASE_MAINNET_URL"
         timeout: "10s"
         weight: 1
-      # - url: "$INFURA_URL"
+      # - name: "infura"
+      #   url: "$INFURA_URL"
       #   timeout: "10s"
       #   weight: 2
 
   84532:
     upstreams:
-      - url: "$ALCHEMY_BASE_SEPOLIA_URL"
+      - name: "alchemy"
+        url: "$ALCHEMY_BASE_SEPOLIA_URL"
         timeout: "10s"
         weight: 1
