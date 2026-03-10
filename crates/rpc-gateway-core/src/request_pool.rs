@@ -63,11 +63,9 @@ impl ChainRequestPool {
             return Err(RequestPoolError::NoUpstreamsAvailable);
         }
 
-        let primary_name = upstreams[0].name();
-
         // Try each upstream in order until one succeeds
-        for upstream in &upstreams {
-            let is_failover = upstream.name() != primary_name;
+        for (index, upstream) in upstreams.iter().enumerate() {
+            let is_failover = index > 0;
 
             if is_failover {
                 debug!(
