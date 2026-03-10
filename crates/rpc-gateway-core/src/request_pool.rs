@@ -52,9 +52,9 @@ impl ChainRequestPool {
     /// Forwards a raw RPC request to an available upstream.
     ///
     /// Attempts to forward the request to upstreams in order of priority (as determined
-    /// by the load balancer). If an upstream fails with a transport error (connection
-    /// failure, HTTP 429, etc.), the next upstream is tried. Returns the response from
-    /// the first successful upstream, along with metadata about whether failover occurred.
+    /// by the load balancer). Each upstream is given its full retry budget (based on the
+    /// error_handling config) before failing over to the next upstream. Returns the response
+    /// from the first successful upstream, along with metadata about whether failover occurred.
     #[instrument(skip(self))]
     pub async fn forward_request(&self, raw_call: Bytes) -> Result<ForwardResult, RequestPoolError> {
         let upstreams = self.load_balancer.select_upstreams();
@@ -63,18 +63,39 @@ impl ChainRequestPool {
             return Err(RequestPoolError::NoUpstreamsAvailable);
         }
 
+        let mut last_error: Option<UpstreamError> = None;
+        let mut attempted_failover = false;
+
         // Try each upstream in order until one succeeds
         for (index, upstream) in upstreams.iter().enumerate() {
             let is_failover = index > 0;
 
             if is_failover {
+                attempted_failover = true;
                 debug!(
                     upstream = %upstream.name(),
                     "Failing over to backup upstream"
                 );
             }
 
-            match upstream.forward_once(&raw_call).await {
+            let result = match self.error_handling.as_ref() {
+                ErrorHandlingConfig::Retry {
+                    max_retries,
+                    retry_delay,
+                    jitter,
+                } => {
+                    upstream
+                        .forward_with_retry(&raw_call, *max_retries, *retry_delay, *jitter)
+                        .await
+                }
+                ErrorHandlingConfig::FailFast => upstream.forward_once(&raw_call).await,
+                ErrorHandlingConfig::CircuitBreaker { .. } => {
+                    // TODO: implement circuit breaker logic
+                    upstream.forward_once(&raw_call).await
+                }
+            };
+
+            match result {
                 Ok(response) => {
                     return Ok(ForwardResult {
                         response,
@@ -88,13 +109,22 @@ impl ChainRequestPool {
                         error = ?e,
                         "Upstream failed, trying next"
                     );
+                    last_error = Some(e);
                     continue;
                 }
             }
         }
 
-        // All upstreams failed
-        error!("All upstreams in failover chain failed");
-        Err(RequestPoolError::AllUpstreamsFailed)
+        // Return appropriate error based on whether failover was attempted
+        if attempted_failover {
+            error!("All upstreams in failover chain failed");
+            Err(RequestPoolError::AllUpstreamsFailed)
+        } else {
+            // Single upstream case: return the actual error
+            error!("Primary upstream failed");
+            Err(RequestPoolError::UpstreamError(
+                last_error.expect("last_error should be set if we reached here"),
+            ))
+        }
     }
 }

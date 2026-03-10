@@ -95,7 +95,7 @@ impl Upstream {
         let chain_id: U64 = match serde_json::from_value(success_result) {
             Ok(chain_id) => chain_id,
             Err(_) => {
-                error!(upstream = ?self, "Could not parse chain id in readiness probe");
+                error!(upstream = %self.name(), chain_id = %self.chain.id(), "Could not parse chain id in readiness probe");
                 return false;
             }
         };
@@ -103,17 +103,17 @@ impl Upstream {
         let self_chain_id: U64 = U64::from(self.chain.id());
 
         if self_chain_id == chain_id {
-            debug!(upstream = ?self, "Readiness probe passed");
+            debug!(upstream = %self.name(), chain_id = %self.chain.id(), "Readiness probe passed");
             return true;
         } else {
-            error!(upstream = ?self, expected_chain_id = %self_chain_id, actual_chain_id = %chain_id, "Readiness probe failed. Chain id mismatch");
+            error!(upstream = %self.name(), expected_chain_id = %self_chain_id, actual_chain_id = %chain_id, "Readiness probe failed. Chain id mismatch");
             return false;
         }
     }
 
     /// Forwards a single request to this upstream without retries.
     // TODO: do the lazy_request trick but for the response now
-    #[instrument(skip(self))]
+    #[instrument(skip(self, raw_call))]
     pub async fn forward_once(&self, raw_call: &Bytes) -> Result<RpcResponse, UpstreamError> {
         // TODO: try parsing the response as an alloy_json_rpc::Response
         // TODO: make sure the upstream errors can be represented as an RpcError.
@@ -166,7 +166,7 @@ impl Upstream {
         })?;
 
         let rpc_response = serde_json::from_slice::<RpcResponse>(&rpc_response).map_err(|e| {
-            error!(?e, status = ?status, error_source = ?e.source(), bytes_response = ?rpc_response, "upstream response json error");
+            error!(?e, status = ?status, error_source = ?e.source(), response_len = rpc_response.len(), "upstream response json error");
             counter!(
                 "upstream_error_total",
                 "upstream" => self.config.name.clone(),
@@ -205,7 +205,7 @@ impl Upstream {
 
     /// Forwards a request with automatic retries on failure.
     // # TODO: standardize error handling
-    #[instrument(skip(self))]
+    #[instrument(skip(self, raw_call))]
     pub async fn forward_with_retry(
         &self,
         raw_call: &Bytes,
