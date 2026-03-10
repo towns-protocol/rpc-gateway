@@ -8,8 +8,17 @@ pub enum LoadBalancingStrategy {
     PrimaryOnly,
     /// Distributes requests across upstreams in round-robin fashion. (Not yet implemented)
     RoundRobin,
-    /// Distributes requests based on upstream weights. (Not yet implemented)
-    WeightedOrder,
+    /// Distributes requests proportionally based on upstream weights.
+    ///
+    /// For example, with weights [10, 90], approximately 10% of traffic goes to the first
+    /// upstream and 90% to the second. If the selected upstream fails, requests fail over
+    /// to other healthy upstreams in the order specified by `fallback_order`.
+    WeightedOrder {
+        /// Order of upstream names to try when the initially selected upstream fails.
+        /// If empty, falls back to other upstreams in descending weight order.
+        #[serde(default)]
+        fallback_order: Vec<String>,
+    },
     /// Tries upstreams by weight (highest first), failing over on connection errors, non-2xx HTTP status, or invalid JSON.
     Failover,
 }
