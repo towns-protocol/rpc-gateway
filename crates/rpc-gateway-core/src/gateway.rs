@@ -181,6 +181,9 @@ impl Gateway {
         let old_config = self.config.load();
         let mut new_handlers = HashMap::new();
 
+        // Compute once - doesn't depend on individual chains
+        let global_changed = !global_configs_equal(&old_config, &new_config);
+
         for (chain_id, chain_config) in &new_config.chains {
             if let Some(_existing_handler) = old_handlers.get(chain_id) {
                 // Check if this chain's config actually changed
@@ -188,8 +191,6 @@ impl Gateway {
                 let chain_changed = old_chain_config
                     .map(|old| !configs_equal(old, chain_config))
                     .unwrap_or(true);
-
-                let global_changed = !global_configs_equal(&old_config, &new_config);
 
                 if chain_changed || global_changed {
                     // Config changed - build a completely new handler atomically
@@ -233,27 +234,34 @@ impl Gateway {
     /// This method runs indefinitely until cancelled. Unlike per-handler loops,
     /// this dynamically observes the current set of handlers, so newly added
     /// chains get health-checked and removed chains stop being checked.
+    ///
+    /// The loop re-reads the config on each iteration, so changes to
+    /// `upstream_health_checks.enabled` and `upstream_health_checks.interval`
+    /// take effect without restart.
     pub async fn start_upstream_health_check_loops(&self) {
-        let config = self.config.load();
-        if !config.upstream_health_checks.enabled {
-            warn!("Upstream health checks are disabled. Not starting health check loops.");
-            return;
-        }
+        debug!("Starting dynamic health check loop");
 
-        let interval = config.upstream_health_checks.interval;
-        debug!("Starting dynamic health check loop with interval {:?}", interval);
-
-        // Run first health check immediately
-        self.run_upstream_health_checks_once().await;
-
-        // Continuously check health at the configured interval
         loop {
-            tokio::time::sleep(interval).await;
+            // Re-read config each iteration to pick up hot-reload changes
+            let config = self.config.load();
+            let interval = config.upstream_health_checks.interval;
+
+            if !config.upstream_health_checks.enabled {
+                // Health checks disabled - sleep and check again later
+                debug!(
+                    sleep_secs = interval.as_secs(),
+                    "Health checks disabled, sleeping"
+                );
+                tokio::time::sleep(interval).await;
+                continue;
+            }
+
             self.run_upstream_health_checks_once().await;
             debug!(
-                "Health check loop completed, sleeping for {} seconds",
-                interval.as_secs()
+                sleep_secs = interval.as_secs(),
+                "Health check loop completed"
             );
+            tokio::time::sleep(interval).await;
         }
     }
 
