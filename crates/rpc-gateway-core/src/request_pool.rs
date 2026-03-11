@@ -90,17 +90,30 @@ impl ChainRequestPool {
                 );
             }
 
+            let failover_codes = error_handling.failover_error_codes();
+
             let result = match error_handling.as_ref() {
                 ErrorHandlingConfig::Retry {
                     max_retries,
                     retry_delay,
                     jitter,
+                    ..
                 } => {
                     upstream
-                        .forward_with_retry(&raw_call, *max_retries, *retry_delay, *jitter)
+                        .forward_with_retry_and_failover_codes(
+                            &raw_call,
+                            *max_retries,
+                            *retry_delay,
+                            *jitter,
+                            failover_codes,
+                        )
                         .await
                 }
-                ErrorHandlingConfig::FailFast => upstream.forward_once(&raw_call).await,
+                ErrorHandlingConfig::FailFast { .. } => {
+                    upstream
+                        .forward_once_with_failover_codes(&raw_call, failover_codes)
+                        .await
+                }
                 ErrorHandlingConfig::CircuitBreaker { .. } => {
                     unimplemented!(
                         "CircuitBreaker error handling is not yet implemented. \

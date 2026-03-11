@@ -40,10 +40,35 @@ metrics:
   port: 8082
 
 # error_handling:
-# type: "retry"
-# max_retries: 3
-# retry_delay: "1s"
-# jitter: true
+#   type: "retry"
+#   max_retries: 3
+#   retry_delay: "1s"
+#   jitter: true
+#   # JSON-RPC error codes that should trigger failover to the next upstream.
+#   # Recommended codes for failover to archive/backup nodes:
+#   #   -32000: Header/block not found (node not synced or data pruned)
+#   #   -32001: Resource not found (data unavailable on this node)
+#   #   -32002: Resource unavailable (temporarily or permanently)
+#   #   -32004: Method not supported (node doesn't implement the method)
+#   #   -32603: Internal error (e.g., "state is pruned" from non-archive nodes)
+#   # Do NOT include user errors like -32600 (invalid request), -32601 (method not found),
+#   # -32602 (invalid params), -32700 (parse error) - these won't work on any node.
+#   failover_on_rpc_error_codes:
+#     - -32000
+#     - -32001
+#     - -32002
+#     - -32004
+#     - -32603
+#
+# # Or use fail_fast with failover on specific RPC errors:
+# error_handling:
+#   type: "fail_fast"
+#   failover_on_rpc_error_codes:
+#     - -32000  # Header/block not found
+#     - -32001  # Resource not found
+#     - -32002  # Resource unavailable
+#     - -32004  # Method not supported
+#     - -32603  # Internal error (state is pruned)
 
 cache:
   # type: "disabled"

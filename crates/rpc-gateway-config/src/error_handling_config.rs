@@ -2,6 +2,7 @@ use duration_str::deserialize_duration;
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
 
+/// Configuration for error handling behavior.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum ErrorHandlingConfig {
@@ -16,8 +17,17 @@ pub enum ErrorHandlingConfig {
         retry_delay: Duration,
         #[serde(default = "default_retry_jitter")]
         jitter: bool,
+        /// JSON-RPC error codes that should trigger failover to the next upstream.
+        /// Common codes: -32603 (internal error, e.g., "state is pruned")
+        #[serde(default)]
+        failover_on_rpc_error_codes: Vec<i64>,
     },
-    FailFast,
+    FailFast {
+        /// JSON-RPC error codes that should trigger failover to the next upstream.
+        /// Common codes: -32603 (internal error, e.g., "state is pruned")
+        #[serde(default)]
+        failover_on_rpc_error_codes: Vec<i64>,
+    },
     CircuitBreaker {
         #[serde(default = "default_failure_threshold")]
         failure_threshold: u32,
@@ -28,7 +38,30 @@ pub enum ErrorHandlingConfig {
         reset_timeout: Duration,
         #[serde(default = "default_half_open_requests")]
         half_open_requests: u32,
+        /// JSON-RPC error codes that should trigger failover to the next upstream.
+        /// Common codes: -32603 (internal error, e.g., "state is pruned")
+        #[serde(default)]
+        failover_on_rpc_error_codes: Vec<i64>,
     },
+}
+
+impl ErrorHandlingConfig {
+    /// Returns the list of JSON-RPC error codes that should trigger failover.
+    pub fn failover_error_codes(&self) -> &[i64] {
+        match self {
+            ErrorHandlingConfig::Retry {
+                failover_on_rpc_error_codes,
+                ..
+            } => failover_on_rpc_error_codes,
+            ErrorHandlingConfig::FailFast {
+                failover_on_rpc_error_codes,
+            } => failover_on_rpc_error_codes,
+            ErrorHandlingConfig::CircuitBreaker {
+                failover_on_rpc_error_codes,
+                ..
+            } => failover_on_rpc_error_codes,
+        }
+    }
 }
 
 impl Default for ErrorHandlingConfig {
@@ -49,7 +82,9 @@ where
 }
 
 fn default_error_handling_config() -> ErrorHandlingConfig {
-    ErrorHandlingConfig::FailFast
+    ErrorHandlingConfig::FailFast {
+        failover_on_rpc_error_codes: vec![],
+    }
 }
 
 fn default_max_retries() -> u32 {

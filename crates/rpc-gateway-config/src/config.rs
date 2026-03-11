@@ -292,7 +292,7 @@ mod tests {
         ));
         assert!(matches!(
             config.error_handling,
-            ErrorHandlingConfig::FailFast
+            ErrorHandlingConfig::FailFast { .. }
         ));
         assert!(config.canned_responses.enabled);
         assert!(config.canned_responses.methods.web3_client_version);
@@ -338,6 +338,7 @@ chains:
                 max_retries,
                 retry_delay,
                 jitter,
+                ..
             } if max_retries == 3 && retry_delay == Duration::from_secs(1) && jitter == true
         ));
 
