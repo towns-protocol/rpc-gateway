@@ -1,8 +1,13 @@
 use metrics_exporter_prometheus::{Matcher, PrometheusBuilder};
 use rpc_gateway_config::MetricsConfig;
-use tracing::info;
+use tracing::{info, warn};
 
 pub fn run(config: &MetricsConfig) {
+    if !config.enabled {
+        warn!("Metrics server is disabled");
+        return;
+    }
+
     // Build + register the global recorder and start the HTTP server.
     let host_bytes = config
         .host_bytes()

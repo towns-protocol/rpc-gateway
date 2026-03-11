@@ -108,6 +108,9 @@ async fn main() {
 
     rpc_gateway_core::metrics::run(&config.metrics);
 
+    // Emit initial metrics now that the Prometheus recorder is installed
+    gateway.emit_initial_metrics();
+
     let gateway_clone = gateway.clone();
 
     let server = server::GatewayServer::new(gateway_clone, config);
