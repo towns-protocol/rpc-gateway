@@ -81,6 +81,9 @@ impl Gateway {
     pub async fn new(config: Config, config_path: Option<PathBuf>) -> Self {
         let handlers = Self::build_handlers(&config).await;
 
+        // Emit initial upstream weight metrics (no old config on startup)
+        emit_upstream_weight_metrics(&config, None);
+
         Self {
             handlers: ArcSwap::from_pointee(handlers),
             config: ArcSwap::from_pointee(config),
@@ -224,10 +227,11 @@ impl Gateway {
         }
 
         self.handlers.store(Arc::new(new_handlers));
-        self.config.store(Arc::new(new_config.clone()));
 
-        // Update upstream weight metrics after config reload
-        emit_upstream_weight_metrics(&new_config);
+        // Update upstream weight metrics after config reload, passing old config to zero out removed upstreams
+        emit_upstream_weight_metrics(&new_config, Some(&old_config));
+
+        self.config.store(Arc::new(new_config.clone()));
     }
 
     /// Returns a reference to the current configuration.
@@ -386,7 +390,41 @@ fn responses_as_batch(outs: Vec<Option<RpcResponse>>) -> Option<Response> {
 ///
 /// This allows observing the configured weight distribution (e.g., 10/90 split)
 /// alongside the actual traffic distribution from request counters.
-fn emit_upstream_weight_metrics(config: &Config) {
+///
+/// If `old_config` is provided, any upstreams that were removed will have their
+/// metrics set to 0 to indicate they are no longer active.
+fn emit_upstream_weight_metrics(config: &Config, old_config: Option<&Config>) {
+    // First, zero out any upstreams that were removed
+    if let Some(old) = old_config {
+        for (chain_id, old_chain_config) in &old.chains {
+            let chain_id_str = chain_id.to_string();
+            let new_chain_config = config.chains.get(chain_id);
+
+            for old_upstream in &old_chain_config.upstreams {
+                // Check if this upstream still exists in the new config
+                let still_exists = new_chain_config
+                    .map(|new_chain| {
+                        new_chain
+                            .upstreams
+                            .iter()
+                            .any(|u| u.name == old_upstream.name)
+                    })
+                    .unwrap_or(false);
+
+                if !still_exists {
+                    // Set to 0 to indicate this upstream is no longer configured
+                    gauge!(
+                        "upstream_configured_weight",
+                        "chain_id" => chain_id_str.clone(),
+                        "upstream" => old_upstream.name.clone(),
+                    )
+                    .set(0.0);
+                }
+            }
+        }
+    }
+
+    // Now emit the current weights
     for (chain_id, chain_config) in &config.chains {
         let chain_id_str = chain_id.to_string();
         for upstream in &chain_config.upstreams {

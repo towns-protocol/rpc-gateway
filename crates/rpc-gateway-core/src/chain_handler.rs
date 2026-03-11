@@ -63,6 +63,17 @@ impl From<RequestPoolError> for ChainHandlerResponse {
                 upstream_name: None,
                 failed_over: None,
             },
+            RequestPoolError::UpstreamError(UpstreamError::RpcError { code, message }) => {
+                ChainHandlerResponse {
+                    response_source: RESPONSE_SOURCE_UPSTREAM,
+                    response_result: ResponseResult::Error(RpcError::internal_error_with(format!(
+                        "Upstream RPC error (code: {}): {}",
+                        code, message
+                    ))),
+                    upstream_name: None,
+                    failed_over: None,
+                }
+            }
             RequestPoolError::AllUpstreamsFailed => ChainHandlerResponse {
                 response_source: RESPONSE_SOURCE_PRE_UPSTREAM_ERROR,
                 response_result: ResponseResult::Error(RpcError::internal_error_with(

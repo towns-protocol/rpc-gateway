@@ -26,7 +26,7 @@ pub struct Upstream {
 }
 
 /// Errors that can occur when communicating with an upstream.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum UpstreamError {
     /// Failed to send the request to the upstream (connection error, timeout, etc.).
     RequestError,
@@ -34,6 +34,13 @@ pub enum UpstreamError {
     ResponseError,
     /// Failed to parse the upstream's response as valid JSON-RPC.
     JsonError,
+    /// Upstream returned a JSON-RPC error that should trigger failover.
+    RpcError {
+        /// The JSON-RPC error code (e.g., -32603 for internal error).
+        code: i64,
+        /// The error message from the upstream.
+        message: String,
+    },
 }
 
 use std::sync::LazyLock;
@@ -117,6 +124,18 @@ impl Upstream {
     // TODO: do the lazy_request trick but for the response now
     #[instrument(skip(self, raw_call))]
     pub async fn forward_once(&self, raw_call: &Bytes) -> Result<RpcResponse, UpstreamError> {
+        self.forward_once_with_failover_codes(raw_call, &[]).await
+    }
+
+    /// Forwards a single request to this upstream without retries.
+    /// If the response contains a JSON-RPC error with a code in `failover_error_codes`,
+    /// returns an `UpstreamError::RpcError` to trigger failover to the next upstream.
+    #[instrument(skip(self, raw_call, failover_error_codes))]
+    pub async fn forward_once_with_failover_codes(
+        &self,
+        raw_call: &Bytes,
+        failover_error_codes: &[i64],
+    ) -> Result<RpcResponse, UpstreamError> {
         // TODO: try parsing the response as an alloy_json_rpc::Response
         // TODO: make sure the upstream errors can be represented as an RpcError.
         // TODO: otherwise, consider just checking if the response is a success or error, and returning it as a Json Value.
@@ -193,6 +212,28 @@ impl Upstream {
                 );
             }
             ResponseResult::Error(err) => {
+                let error_code = err.code.code();
+
+                // Check if this error code should trigger failover
+                if failover_error_codes.contains(&error_code) {
+                    warn!(
+                        err_code = error_code,
+                        err_message = ?err.message,
+                        "upstream returned RPC error that triggers failover"
+                    );
+                    counter!(
+                        "upstream_error_total",
+                        "upstream" => self.config.name.clone(),
+                        "error_type" => "rpc_error",
+                        "http_status" => "200"
+                    )
+                    .increment(1);
+                    return Err(UpstreamError::RpcError {
+                        code: error_code,
+                        message: err.message.to_string(),
+                    });
+                }
+
                 // TODO: start a new counter for upstream errors, and label by status code and url
                 error!(
                     err_code = ?err.code,
@@ -215,11 +256,30 @@ impl Upstream {
         retry_delay: Duration,
         jitter: bool,
     ) -> Result<RpcResponse, UpstreamError> {
+        self.forward_with_retry_and_failover_codes(raw_call, max_retries, retry_delay, jitter, &[])
+            .await
+    }
+
+    /// Forwards a request with automatic retries on failure.
+    /// If the response contains a JSON-RPC error with a code in `failover_error_codes`,
+    /// returns an `UpstreamError::RpcError` to trigger failover to the next upstream.
+    #[instrument(skip(self, raw_call, failover_error_codes))]
+    pub async fn forward_with_retry_and_failover_codes(
+        &self,
+        raw_call: &Bytes,
+        max_retries: u32,
+        retry_delay: Duration,
+        jitter: bool,
+        failover_error_codes: &[i64],
+    ) -> Result<RpcResponse, UpstreamError> {
         let mut last_error = None;
         let mut current_retry = 0;
 
         while current_retry <= max_retries {
-            match self.forward_once(raw_call).await {
+            match self
+                .forward_once_with_failover_codes(raw_call, failover_error_codes)
+                .await
+            {
                 Ok(response) => {
                     info!(
                         retry_count = %current_retry,
@@ -228,6 +288,11 @@ impl Upstream {
                     return Ok(response);
                 }
                 Err(e) => {
+                    // Don't retry on RPC errors - these should trigger failover immediately
+                    if matches!(e, UpstreamError::RpcError { .. }) {
+                        return Err(e);
+                    }
+
                     last_error = Some(e);
                     if current_retry < max_retries {
                         let delay = if jitter {
