@@ -33,6 +33,10 @@ request_coalescing:
 upstream_health_checks:
   enabled: true
   interval: "5m"
+  # Optional: Mark upstream unhealthy if it's more than N blocks behind the highest
+  # block among all upstreams for the chain. Useful for detecting nodes that fall behind.
+  # Metrics emitted: upstream_block_height, upstream_block_lag (per upstream)
+  # block_height_lag_threshold: 10
 
 metrics:
   enabled: true

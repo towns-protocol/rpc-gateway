@@ -56,6 +56,17 @@ static CHAIN_ID_REQUEST: LazyLock<Bytes> = LazyLock::new(|| {
     .into()
 });
 
+static BLOCK_NUMBER_REQUEST: LazyLock<Bytes> = LazyLock::new(|| {
+    serde_json::to_string(&serde_json::json!({
+      "jsonrpc": "2.0",
+      "method": "eth_blockNumber",
+      "params": [],
+      "id": 1
+    }))
+    .unwrap()
+    .into()
+});
+
 impl Upstream {
     /// Creates a new upstream with the given configuration and chain.
     pub fn new(config: UpstreamConfig, chain: Chain) -> Self {
@@ -86,6 +97,37 @@ impl Upstream {
     /// Resets the current weight to the configured weight.
     pub fn reset_weight(&mut self) {
         self.current_weight = self.config.weight as f64;
+    }
+
+    /// Gets the current block number from this upstream.
+    /// Returns None if the request fails or the response cannot be parsed.
+    #[instrument(skip(self))]
+    pub async fn get_block_number(&self) -> Option<u64> {
+        let response = match self.forward_once(&BLOCK_NUMBER_REQUEST).await {
+            Ok(response) => response,
+            Err(e) => {
+                debug!(upstream = %self.name(), error = ?e, "Failed to get block number");
+                return None;
+            }
+        };
+
+        let success_result = match response.result {
+            ResponseResult::Success(result) => result,
+            ResponseResult::Error(e) => {
+                debug!(upstream = %self.name(), error = ?e, "Block number request returned error");
+                return None;
+            }
+        };
+
+        let block_number: U64 = match serde_json::from_value(success_result) {
+            Ok(block_number) => block_number,
+            Err(e) => {
+                error!(upstream = %self.name(), error = ?e, "Could not parse block number");
+                return None;
+            }
+        };
+
+        Some(block_number.to::<u64>())
     }
 
     /// Performs a health check by sending an eth_chainId request and verifying the response.
