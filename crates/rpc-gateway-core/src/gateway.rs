@@ -98,7 +98,7 @@ impl Gateway {
     /// the Prometheus recorder is installed.
     pub fn emit_initial_metrics(&self) {
         let config = self.config.load();
-        emit_upstream_weight_metrics(&config);
+        emit_upstream_weight_metrics(&config, None);
     }
 
     /// Builds chain handlers from the configuration.
