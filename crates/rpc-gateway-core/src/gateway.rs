@@ -81,15 +81,21 @@ impl Gateway {
     pub async fn new(config: Config, config_path: Option<PathBuf>) -> Self {
         let handlers = Self::build_handlers(&config).await;
 
-        // Emit initial upstream weight metrics
-        emit_upstream_weight_metrics(&config);
-
         Self {
             handlers: ArcSwap::from_pointee(handlers),
             config: ArcSwap::from_pointee(config),
             config_path,
             reload_mutex: Mutex::new(()),
         }
+    }
+
+    /// Emits the initial upstream weight metrics.
+    ///
+    /// This should be called after the metrics server is started to ensure
+    /// the Prometheus recorder is installed.
+    pub fn emit_initial_metrics(&self) {
+        let config = self.config.load();
+        emit_upstream_weight_metrics(&config);
     }
 
     /// Builds chain handlers from the configuration.
