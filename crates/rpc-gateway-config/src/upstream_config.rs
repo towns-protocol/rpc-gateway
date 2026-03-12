@@ -16,9 +16,10 @@ pub struct UpstreamConfig {
     /// Request timeout for this upstream. Defaults to 10 seconds.
     #[serde(default = "default_timeout", deserialize_with = "validate_timeout")]
     pub timeout: Duration,
-    /// Weight for load balancing priority. Higher weight means higher priority. Defaults to 1.
+    /// Weight for load balancing priority. Higher weight means higher priority.
+    /// Set to 0 for backup-only upstreams that should only receive traffic via failover.
+    /// Defaults to 1.
     #[serde(default = "default_weight")]
-    #[serde(deserialize_with = "validate_weight")]
     pub weight: u32,
 }
 
@@ -43,17 +44,6 @@ where
         return Err(serde::de::Error::custom("timeout cannot be zero"));
     }
     Ok(duration)
-}
-
-fn validate_weight<'de, D>(deserializer: D) -> Result<u32, D::Error>
-where
-    D: serde::Deserializer<'de>,
-{
-    let value = u32::deserialize(deserializer)?;
-    if value == 0 {
-        return Err(serde::de::Error::custom("weight cannot be zero"));
-    }
-    Ok(value)
 }
 
 /// Trait for processing URL strings before parsing them.
