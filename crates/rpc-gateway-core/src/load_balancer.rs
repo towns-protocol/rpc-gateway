@@ -2,12 +2,13 @@ use std::{fmt, sync::Arc};
 
 use arc_swap::ArcSwap;
 use futures::future::join_all;
+use metrics::gauge;
 use nonempty::NonEmpty;
 use rand::Rng;
 use rpc_gateway_config::{LoadBalancingStrategy, UpstreamHealthChecksConfig};
 use rpc_gateway_upstream::upstream::Upstream;
 use tokio::time::sleep;
-use tracing::debug;
+use tracing::{debug, warn};
 
 /// Tracks upstream health and exposes the healthy set.
 ///
@@ -57,21 +58,93 @@ impl HealthCheckManager {
     /// Uses pointer comparison to detect if upstreams were updated during the health check.
     /// If the upstream set changed (e.g., via `update_upstreams`), the results are discarded
     /// to prevent stale/removed upstreams from being written back to the healthy set.
+    ///
+    /// If `block_height_lag_threshold` is configured, also checks that each upstream's
+    /// block height is within the threshold of the highest block across all upstreams.
     pub async fn run_health_checks_once(&self) {
         // Load the current upstream set - use load_full() to get an owned Arc for comparison
         let all_upstreams = self.all_upstreams.load_full();
+
+        // First pass: check readiness and get block numbers in parallel
         let futures = all_upstreams.iter().map(|upstream| {
             let upstream = Arc::clone(upstream);
             async move {
-                let is_healthy = upstream.readiness_probe().await;
-                (upstream, is_healthy)
+                let is_ready = upstream.readiness_probe().await;
+                let block_number = if is_ready {
+                    upstream.get_block_number().await
+                } else {
+                    None
+                };
+                (upstream, is_ready, block_number)
             }
         });
 
-        let healthy = join_all(futures)
-            .await
+        let results: Vec<_> = join_all(futures).await;
+
+        // Find the highest block number among all upstreams
+        let max_block_number = results
+            .iter()
+            .filter_map(|(_, _, block_num)| *block_num)
+            .max();
+
+        // Filter healthy upstreams based on readiness and block height lag
+        let healthy: Vec<_> = results
             .into_iter()
-            .filter_map(|(upstream, is_healthy)| is_healthy.then_some(upstream))
+            .filter_map(|(upstream, is_ready, block_number)| {
+                if !is_ready {
+                    return None;
+                }
+
+                // If lag checking is enabled but we couldn't get this upstream's block number,
+                // treat it as unhealthy (we can't verify it's synced)
+                if self.config.block_height_lag_threshold.is_some()
+                    && max_block_number.is_some()
+                    && block_number.is_none()
+                {
+                    warn!(
+                        upstream = %upstream.name(),
+                        "Upstream marked unhealthy: could not determine block height for lag check"
+                    );
+                    return None;
+                }
+
+                // Emit block height metrics for all ready upstreams (regardless of threshold config)
+                if let (Some(max_block), Some(upstream_block)) = (max_block_number, block_number) {
+                    let lag = max_block.saturating_sub(upstream_block);
+                    let chain_id = upstream.chain.id().to_string();
+
+                    gauge!(
+                        "upstream_block_height",
+                        "chain_id" => chain_id.clone(),
+                        "upstream" => upstream.name().to_string()
+                    )
+                    .set(upstream_block as f64);
+
+                    gauge!(
+                        "upstream_block_lag",
+                        "chain_id" => chain_id,
+                        "upstream" => upstream.name().to_string()
+                    )
+                    .set(lag as f64);
+
+                    // Check block height lag threshold if configured
+                    if let Some(threshold) = self.config.block_height_lag_threshold {
+                        if lag > threshold {
+                            warn!(
+                                upstream = %upstream.name(),
+                                upstream_block = upstream_block,
+                                max_block = max_block,
+                                lag = lag,
+                                threshold = threshold,
+                                "Upstream marked unhealthy: block height lag exceeds threshold"
+                            );
+                            return None;
+                        }
+                    }
+                }
+
+                Some(upstream)
+            })
             .collect();
 
         // Only store results if the upstream set hasn't changed during the health check.

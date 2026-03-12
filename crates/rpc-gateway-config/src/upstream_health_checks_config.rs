@@ -12,6 +12,11 @@ pub struct UpstreamHealthChecksConfig {
         deserialize_with = "deserialize_duration_with_default"
     )]
     pub interval: Duration,
+    /// Maximum allowed block height lag. If an upstream is more than this many blocks
+    /// behind the highest block among all upstreams for the chain, it's marked unhealthy.
+    /// Set to None (or omit) to disable block height lag checking.
+    #[serde(default)]
+    pub block_height_lag_threshold: Option<u64>,
 }
 
 fn deserialize_duration_with_default<'de, D>(deserializer: D) -> Result<Duration, D::Error>
@@ -39,6 +44,7 @@ impl Default for UpstreamHealthChecksConfig {
         Self {
             enabled: default_upstream_liveness_enabled(),
             interval: default_upstream_liveness_interval(),
+            block_height_lag_threshold: None,
         }
     }
 }
