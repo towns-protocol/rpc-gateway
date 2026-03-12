@@ -510,7 +510,8 @@ chains:
     }
 
     #[test]
-    fn test_zero_weight() {
+    fn test_zero_weight_allowed() {
+        // Zero weight is allowed for backup-only upstreams that should only receive traffic via failover
         let config_str = r#"
 chains:
   1:
@@ -520,9 +521,11 @@ chains:
 "#;
 
         let result = Config::from_yaml_str(config_str);
-        assert!(result.is_err());
-        let err = result.unwrap_err();
-        assert!(err.to_string().contains("weight cannot be zero"));
+        assert!(result.is_ok());
+        let config = result.unwrap();
+        let chain = config.chains.get(&1).unwrap();
+        let upstream = chain.upstreams.iter().next().unwrap();
+        assert_eq!(upstream.weight, 0);
     }
 
     #[test]
